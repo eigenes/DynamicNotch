@@ -19,6 +19,7 @@ pub const WM_APP_FRAME: u32 = WM_APP + 1;
 pub const WM_APP_BUS: u32 = WM_APP + 2;
 pub const WM_APP_TRAY: u32 = WM_APP + 3;
 pub const WM_APP_FOREGROUND: u32 = WM_APP + 4;
+pub const WM_APP_DRAG: u32 = WM_APP + 5;
 
 pub const CLASS_NAME: PCWSTR = w!("DynamicNotch.Window");
 
@@ -103,12 +104,20 @@ fn wndproc_inner(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
         crate::tray::show_menu(hwnd);
         return LRESULT(0);
     }
+    // Dragging files out runs a modal loop too.
+    if msg == WM_APP_DRAG {
+        if let Some(Some(files)) = with_app(|app| app.take_drag()) {
+            crate::sys::dragdrop::drag_out(hwnd, &files);
+            with_app(|app| app.drag_finished());
+        }
+        return LRESULT(0);
+    }
 
     match with_app(|app| app.handle(msg, wp, lp)) {
         Some(Some(r)) => return r,
         Some(None) => {}
         None => {
-            if cfg!(debug_assertions) && msg >= WM_APP || msg == WM_COPYDATA {
+            if cfg!(debug_assertions) && msg >= WM_APP || msg == WM_COPYDATA || msg == WM_APP_FRAME {
                 crate::log!("re-entrant message {msg:#x} dropped");
             }
         }

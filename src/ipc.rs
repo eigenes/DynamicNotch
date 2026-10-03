@@ -28,6 +28,7 @@ USAGE:
   dynamic-notch progress <name> <0-100|done|cancel>
   dynamic-notch timer <minutes>
   dynamic-notch ask <prompt>         ask the AI (OpenRouter)
+  dynamic-notch claude [--always]    Claude Code hook (reads the hook JSON on stdin)
   dynamic-notch toggle | expand | collapse | ai | reload | quit
 ";
 

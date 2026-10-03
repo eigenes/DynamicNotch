@@ -41,7 +41,12 @@ use crate::pacer::Pacer;
 use crate::tray::{self, MenuState, Tray};
 use crate::ui::{ButtonStyle, Input, Ui};
 use crate::util::{palette, Color, Rect, SendHwnd};
-use crate::window::{WM_APP_BUS, WM_APP_FOREGROUND, WM_APP_FRAME, WM_APP_TRAY};
+use windows::Win32::UI::Input::{
+    GetRawInputData, RegisterRawInputDevices, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER, RIDEV_INPUTSINK,
+    RID_INPUT, RIM_TYPEKEYBOARD,
+};
+use crate::sys::dragdrop::{self, DropEvent};
+use crate::window::{WM_APP_BUS, WM_APP_DRAG, WM_APP_FOREGROUND, WM_APP_FRAME, WM_APP_TRAY};
 use crate::{ipc, log, sys};
 
 const HEADER_H: f32 = 42.0;
@@ -145,6 +150,9 @@ pub struct App {
     rx: Receiver<Msg>,
     modules: Vec<Box<dyn Module>>,
     started: Vec<bool>,
+    /// Tick deadline each module asked for when the wake timer was last armed.
+    /// `next_tick()` is relative to "now", so it must be cached to ever come due.
+    tick_at: Vec<Option<Instant>>,
 
     monitor: HMONITOR,
     scale: f32,
@@ -187,6 +195,14 @@ pub struct App {
     secondary: Option<Activity>,
     indicators: Vec<Indicator>,
     clock_min: u16,
+    /// Virtual key of the dictation hotkey (its release ends push-to-talk).
+    dictate_vk: u16,
+    /// Watched keys currently held (raw input repeats are dropped).
+    raw_down: Vec<u16>,
+    /// Files are being dragged over the notch (keeps it open).
+    drag_hover: bool,
+    /// Files to drag out once the window proc is outside the app borrow.
+    pending_drag: Option<Vec<String>>,
     /// Frame statistics for the DN_DEBUG log.
     /// Frames in the current burst: (start, spring, animate, dirty).
     stats: (Option<Instant>, u32, u32, u32),
@@ -215,6 +231,7 @@ impl App {
             rx,
             modules,
             started: vec![false; n],
+            tick_at: vec![None; n],
             monitor: HMONITOR::default(),
             scale: 1.0,
             win_w: 0.0,
@@ -251,6 +268,10 @@ impl App {
             secondary: None,
             indicators: Vec::new(),
             clock_min: 99,
+            dictate_vk: 0,
+            raw_down: Vec::new(),
+            drag_hover: false,
+            pending_drag: None,
             stats: (None, 0, 0, 0),
             debug: std::env::var_os("DN_DEBUG").is_some(),
             cfg,
@@ -280,7 +301,19 @@ impl App {
             if !fg.is_invalid() {
                 self.hooks.push(fg);
             }
+            // Keyboard raw input in the background: lock-key toggles and the
+            // release of the dictation hotkey. Nothing is blocked or recorded.
+            let rid = RAWINPUTDEVICE {
+                usUsagePage: 0x01,
+                usUsage: 0x06,
+                dwFlags: RIDEV_INPUTSINK,
+                hwndTarget: self.hwnd,
+            };
+            if let Err(e) = RegisterRawInputDevices(&[rid], std::mem::size_of::<RAWINPUTDEVICE>() as u32) {
+                log!("raw input unavailable: {e}");
+            }
         }
+        dragdrop::register_target(self.hwnd, |ev| crate::window::with_app(|a| a.on_drop_event(ev)).unwrap_or(false));
         sys::watch_config(self.bus.clone());
         if self.cfg.general.start_with_windows != sys::is_autostart() {
             sys::set_autostart(self.cfg.general.start_with_windows);
@@ -312,6 +345,7 @@ impl App {
             }
         }
         hotkeys::unregister_all(self.hwnd);
+        dragdrop::revoke_target(self.hwnd);
         self.tray = None;
         self.pacer.stop();
     }
@@ -387,6 +421,10 @@ impl App {
             WM_APP_FOREGROUND => {
                 self.on_foreground_changed();
                 Some(LRESULT(0))
+            }
+            WM_INPUT => {
+                self.on_raw_input(lp);
+                None // DefWindowProc must still see WM_INPUT
             }
             WM_CLIPBOARDUPDATE => {
                 self.broadcast(SystemEvent::ClipboardChanged);
@@ -473,6 +511,98 @@ impl App {
         }
     }
 
+    fn on_raw_input(&mut self, lp: LPARAM) {
+        let mut ri = RAWINPUT::default();
+        let mut size = std::mem::size_of::<RAWINPUT>() as u32;
+        let n = unsafe {
+            GetRawInputData(
+                HRAWINPUT(lp.0 as *mut _),
+                RID_INPUT,
+                Some(&mut ri as *mut _ as *mut _),
+                &mut size,
+                std::mem::size_of::<RAWINPUTHEADER>() as u32,
+            )
+        };
+        if n == u32::MAX || ri.header.dwType != RIM_TYPEKEYBOARD.0 {
+            return;
+        }
+        let kb = unsafe { ri.data.keyboard };
+        let vk = kb.VKey;
+        let watched = [VK_CAPITAL.0, VK_NUMLOCK.0, VK_SCROLL.0].contains(&vk) || (vk != 0 && vk == self.dictate_vk);
+        if !watched {
+            return;
+        }
+        let down = kb.Flags as u32 & RI_KEY_BREAK == 0;
+        if down {
+            if self.raw_down.contains(&vk) {
+                return; // auto-repeat
+            }
+            self.raw_down.push(vk);
+        } else {
+            // A registered hotkey's key-down never reaches raw input, its key-up does.
+            self.raw_down.retain(|&k| k != vk);
+        }
+        self.broadcast(SystemEvent::RawKey { vk, down });
+    }
+
+    /// OLE drop target callbacks (files dragged onto the notch).
+    pub fn on_drop_event(&mut self, ev: DropEvent) -> bool {
+        if !self.module_index("shelf").map_or(false, |i| self.started[i]) {
+            return false;
+        }
+        match ev {
+            DropEvent::Enter => {
+                self.drag_hover = true;
+                self.user_hidden = false;
+                if self.mode != Mode::Expanded || self.page != "shelf" {
+                    self.expand(Some("shelf"));
+                }
+                self.broadcast(SystemEvent::DragHover(true));
+            }
+            DropEvent::Leave => {
+                self.drag_hover = false;
+                self.leave_since = Some(Instant::now());
+                self.broadcast(SystemEvent::DragHover(false));
+            }
+            DropEvent::Drop(files) => {
+                self.drag_hover = false;
+                // the cursor is on the notch but sends no moves until it does
+                self.leave_since = None;
+                self.auto_close = Some(Instant::now() + Duration::from_secs(4));
+                self.broadcast(SystemEvent::DragHover(false));
+                self.broadcast(SystemEvent::Dropped(files));
+            }
+        }
+        self.request_frame();
+        self.schedule_wake();
+        true
+    }
+
+    /// Files to drag out (see `WM_APP_DRAG` in window.rs). The button-up ends
+    /// up in the drag loop, so the press is forgotten here.
+    pub fn take_drag(&mut self) -> Option<Vec<String>> {
+        self.input.down = None;
+        self.pending_drag.take()
+    }
+
+    pub fn drag_finished(&mut self) {
+        // The drag loop held the mouse capture, so WM_MOUSELEAVE may never
+        // have arrived; resync hover from the real cursor position.
+        let mut pt = POINT::default();
+        unsafe {
+            let _ = GetCursorPos(&mut pt);
+            let _ = windows::Win32::Graphics::Gdi::ScreenToClient(self.hwnd, &mut pt);
+        }
+        let (x, y) = (pt.x as f32 / self.scale, pt.y as f32 / self.scale);
+        if !self.hover_zone().contains(x, y) {
+            self.tracking = false;
+            self.input.mouse = None;
+            self.set_hover(false);
+        }
+        self.broadcast(SystemEvent::DragOutDone);
+        self.request_frame();
+    }
+
     fn lp_to_logical(&self, lp: LPARAM) -> (f32, f32) {
         let x = (lp.0 & 0xFFFF) as u16 as i16 as f32;
         let y = ((lp.0 >> 16) & 0xFFFF) as u16 as i16 as f32;
@@ -541,6 +671,14 @@ impl App {
         }
         if let Some(k) = fx.keyboard_focus {
             self.set_keyboard(k);
+        }
+        if let Some(files) = fx.drag_files {
+            if !files.is_empty() && self.pending_drag.is_none() {
+                self.pending_drag = Some(files);
+                unsafe {
+                    let _ = PostMessageW(Some(self.hwnd), WM_APP_DRAG, WPARAM(0), LPARAM(0));
+                }
+            }
         }
         if fx.redraw || fx.animate || fx.layout_changed {
             self.request_frame();
@@ -619,7 +757,7 @@ impl App {
         {
             let hwnd = SendHwnd::new(self.hwnd);
             for (i, m) in self.modules.iter_mut().enumerate() {
-                if self.started[i] && m.next_tick().map_or(false, |t| t <= now + Duration::from_millis(2)) {
+                if self.started[i] && self.tick_at[i].map_or(false, |t| t <= now + Duration::from_millis(2)) {
                     let mut cx = Cx { bus: &self.bus, cfg: &self.cfg, fx: &mut fx, hwnd, now };
                     m.on_tick(&mut cx);
                     fx.redraw = true;
@@ -645,10 +783,9 @@ impl App {
             next = Some(next.map_or(t, |n: Instant| n.min(t)));
         };
         for (i, m) in self.modules.iter().enumerate() {
-            if self.started[i] {
-                if let Some(t) = m.next_tick() {
-                    consider(t);
-                }
+            self.tick_at[i] = if self.started[i] { m.next_tick() } else { None };
+            if let Some(t) = self.tick_at[i] {
+                consider(t);
             }
         }
         let g = &self.cfg.general;
@@ -657,7 +794,7 @@ impl App {
                 consider(h + Duration::from_millis(g.hover_delay_ms as u64));
             }
         }
-        if self.mode == Mode::Expanded && !self.hovering && !self.keyboard {
+        if self.mode == Mode::Expanded && !self.hovering && !self.keyboard && !self.drag_hover {
             if let Some(l) = self.leave_since {
                 consider(l + Duration::from_millis(g.collapse_delay_ms as u64));
             }
@@ -695,7 +832,7 @@ impl App {
                 }
             }
         }
-        if self.mode == Mode::Expanded && !self.hovering && !self.keyboard {
+        if self.mode == Mode::Expanded && !self.hovering && !self.keyboard && !self.drag_hover {
             let leave = self.leave_since.map(|l| l + Duration::from_millis(g.collapse_delay_ms as u64));
             if leave.into_iter().chain(self.auto_close).any(|t| now >= t) {
                 self.collapse();
@@ -856,6 +993,9 @@ impl App {
         self.shutdown();
         unsafe {
             let _ = DestroyWindow(self.hwnd);
+            // WM_DESTROY arrives while the app is still borrowed (re-entrant),
+            // so its handler never runs; end the message loop here.
+            PostQuitMessage(0);
         }
     }
 
@@ -927,10 +1067,17 @@ impl App {
                     self.input.click = Some((d, p));
                 }
             }
-            Mode::Peek => {
-                let page = self.peek.as_ref().and_then(|a| a.peek.page);
-                self.expand(page);
-            }
+            Mode::Peek => match self.peek.as_ref().and_then(|a| a.peek.focus) {
+                Some(h) => {
+                    sys::activate_window(h);
+                    self.peek = None;
+                    self.next_peek();
+                }
+                None => {
+                    let page = self.peek.as_ref().and_then(|a| a.peek.page);
+                    self.expand(page);
+                }
+            },
             Mode::Idle => {
                 if self.anim.sec.value > 0.5 && self.bubble_rect().contains(p.0, p.1) {
                     let page = self.secondary.as_ref().and_then(|a| a.page);
@@ -982,6 +1129,9 @@ impl App {
             Action::Timer => self.expand(Some("timer")),
             Action::Clipboard => self.expand(Some("clipboard")),
             Action::PlayPause => self.broadcast(SystemEvent::Command { verb: "playpause".into(), args: vec![] }),
+            Action::Dictate => {
+                self.broadcast(SystemEvent::Command { verb: "dictate".into(), args: vec!["hotkey".into()] })
+            }
         }
     }
 
@@ -1007,6 +1157,7 @@ impl App {
                 let body = rest.get(1..).map(|a| a.join(" ")).unwrap_or_default();
                 self.push_peek(Peek::new(Icon::Bell, palette::BLUE, title, body).duration_ms(4500));
             }
+            "claude" => self.push_peek(claude_peek(&rest)),
             "quit" | "exit" => self.quit(),
             _ => self.broadcast(SystemEvent::Command { verb, args: rest }),
         }
@@ -1114,6 +1265,7 @@ impl App {
     fn register_hotkeys(&mut self) {
         let (ok, errors) = hotkeys::register_all(self.hwnd, &self.cfg.hotkeys);
         self.hotkeys = ok;
+        self.dictate_vk = hotkeys::parse(&self.cfg.hotkeys.dictate).map_or(0, |(_, vk)| vk as u16);
         if !errors.is_empty() {
             log!("hotkey problems: {errors:?}");
             self.push_peek(
@@ -1689,6 +1841,10 @@ fn draw_slot(ui: &mut Ui, slot: &Slot, sq: Rect, wing: Rect, left: bool, bars: &
             let c = battery_color(*level, *charging);
             icons::battery(ui.p, sq.inset_xy(0.0, sq.h * 0.18), *level, *charging, c);
         }
+        Slot::Wave { levels, color } => {
+            let r = Rect::new(wing.x, wing.y + wing.h * 0.12, wing.w, wing.h * 0.76);
+            modules::voice::draw_wave(ui, r, levels, *color);
+        }
     }
 }
 
@@ -1985,6 +2141,26 @@ fn translate_key(vk: u32) -> Option<Key> {
     })
 }
 
+/// Banner for `dynamic-notch claude <event> <project> <message> <hwnd>` (see claude.rs).
+fn claude_peek(args: &[String]) -> Peek {
+    const CLAUDE: Color = Color::hex(0xD97757);
+    let arg = |i: usize| args.get(i).map(|s| s.trim()).unwrap_or("");
+    let (event, project, message) = (arg(0).to_ascii_lowercase(), arg(1), arg(2));
+    let hwnd = arg(3).parse::<isize>().unwrap_or(0);
+    let join = |a: &str, b: &str| match (a.is_empty(), b.is_empty()) {
+        (false, false) => format!("{a} · {b}"),
+        _ => format!("{a}{b}"),
+    };
+    let peek = if matches!(event.as_str(), "notification" | "attention" | "permission") {
+        let msg = if message.is_empty() { "Waiting for your input" } else { message };
+        Peek::new(Icon::Bell, CLAUDE, "Claude needs you", join(project, msg)).duration_ms(7000)
+    } else {
+        let sub = if project.is_empty() { "Ready for your next message".to_string() } else { project.to_string() };
+        Peek::new(Icon::Sparkle, CLAUDE, "Claude finished", sub).duration_ms(4500)
+    };
+    peek.key("claude").focus(hwnd)
+}
+
 /// Map an IPC page name onto a static module id.
 fn leak_page(p: &str) -> ModuleId {
     match p {
@@ -1993,6 +2169,9 @@ fn leak_page(p: &str) -> ModuleId {
         "clipboard" => "clipboard",
         "downloads" => "downloads",
         "ai" => "ai",
+        "voice" => "voice",
+        "shelf" => "shelf",
+        "ports" => "ports",
         _ => HOME,
     }
 }

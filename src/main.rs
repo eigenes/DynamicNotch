@@ -5,6 +5,7 @@
 mod anim;
 mod app;
 mod bus;
+mod claude;
 mod config;
 mod gfx;
 mod host;
@@ -32,6 +33,12 @@ fn main() {
             let _ = AttachConsole(ATTACH_PARENT_PROCESS);
         }
         println!("{}", ipc::HELP);
+        return;
+    }
+
+    // Hook mode: forward to a running notch, never start one.
+    if args.first().map_or(false, |a| a.eq_ignore_ascii_case("claude")) {
+        claude::run(&args[1..]);
         return;
     }
 

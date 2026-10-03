@@ -40,6 +40,8 @@ pub enum Icon {
     Info,
     Bolt,
     Globe,
+    Keyboard,
+    Package,
 }
 
 impl Icon {
@@ -65,6 +67,8 @@ impl Icon {
             Icon::Info => '\u{E946}',
             Icon::Bolt => '\u{E945}',
             Icon::Globe => '\u{E774}',
+            Icon::Keyboard => '\u{E765}',
+            Icon::Package => '\u{E7B8}',
             _ => return None,
         })
     }

@@ -93,6 +93,7 @@ fn run(s: Arc<Shared>, hwnd: SendHwnd) {
     let wait_clock = load_wait_clock();
     let wake = HANDLE(s.wake as *mut _);
     let mut last = Instant::now();
+    let mut posted = Instant::now();
     loop {
         if s.quit.load(Ordering::Acquire) {
             break;
@@ -118,7 +119,11 @@ fn run(s: Arc<Shared>, hwnd: SendHwnd) {
             std::thread::sleep(Duration::from_millis(4) - el);
         }
         last = Instant::now();
-        if !s.pending.swap(true, Ordering::AcqRel) {
+        // A frame message that was never consumed (dropped while the UI
+        // thread was busy re-entrantly) must not stall frames forever.
+        let stale = posted.elapsed() > Duration::from_millis(250);
+        if !s.pending.swap(true, Ordering::AcqRel) || stale {
+            posted = last;
             unsafe {
                 let _ = PostMessageW(Some(hwnd.hwnd()), WM_APP_FRAME, WPARAM(0), LPARAM(0));
             }

@@ -49,6 +49,14 @@ pub fn parse_url(url: &str) -> Option<Url> {
     Some(Url { secure, host: host.to_string(), port, path: path.to_string() })
 }
 
+/// WinHTTP timeouts in milliseconds: (resolve, connect, send, receive).
+#[derive(Clone, Copy)]
+pub struct Timeouts(pub i32, pub i32, pub i32, pub i32);
+
+impl Timeouts {
+    pub const DEFAULT: Timeouts = Timeouts(10_000, 15_000, 30_000, 120_000);
+}
+
 /// POST `body` and feed the response body to `on_chunk` as it arrives.
 /// Returns the HTTP status code. `on_chunk` returning false (or `cancel`
 /// becoming true) aborts the transfer.
@@ -56,6 +64,37 @@ pub fn post_stream(
     url: &str,
     headers: &[(&str, String)],
     body: &[u8],
+    cancel: &AtomicBool,
+    on_chunk: impl FnMut(&[u8]) -> bool,
+) -> Result<u16, String> {
+    request("POST", url, headers, body, Timeouts::DEFAULT, cancel, on_chunk)
+}
+
+/// Send a request and collect up to `limit` bytes of the response body.
+pub fn fetch(
+    method: &str,
+    url: &str,
+    headers: &[(&str, String)],
+    body: &[u8],
+    timeouts: Timeouts,
+    limit: usize,
+    cancel: &AtomicBool,
+) -> Result<(u16, Vec<u8>), String> {
+    let mut out = Vec::new();
+    let status = request(method, url, headers, body, timeouts, cancel, |c| {
+        out.extend_from_slice(&c[..c.len().min(limit.saturating_sub(out.len()))]);
+        out.len() < limit
+    })?;
+    Ok((status, out))
+}
+
+/// Shared implementation of `post_stream` / `fetch`.
+pub fn request(
+    method: &str,
+    url: &str,
+    headers: &[(&str, String)],
+    body: &[u8],
+    timeouts: Timeouts,
     cancel: &AtomicBool,
     mut on_chunk: impl FnMut(&[u8]) -> bool,
 ) -> Result<u16, String> {
@@ -71,17 +110,19 @@ pub fn post_stream(
         if session.0.is_null() {
             return Err("WinHttpOpen failed".into());
         }
-        let _ = WinHttpSetTimeouts(session.0, 10_000, 15_000, 30_000, 120_000);
+        let Timeouts(t_resolve, t_connect, t_send, t_receive) = timeouts;
+        let _ = WinHttpSetTimeouts(session.0, t_resolve, t_connect, t_send, t_receive);
         let host = wide(&u.host);
         let connect = Handle(WinHttpConnect(session.0, PCWSTR(host.as_ptr()), u.port, 0));
         if connect.0.is_null() {
             return Err(format!("cannot connect to {}", u.host));
         }
         let path = wide(&u.path);
+        let verb = wide(method);
         let flags = if u.secure { WINHTTP_FLAG_SECURE } else { WINHTTP_OPEN_REQUEST_FLAGS(0) };
         let req = Handle(WinHttpOpenRequest(
             connect.0,
-            w!("POST"),
+            PCWSTR(verb.as_ptr()),
             PCWSTR(path.as_ptr()),
             PCWSTR::null(),
             PCWSTR::null(),
@@ -98,10 +139,13 @@ pub fn post_stream(
             hdr.push_str(v);
             hdr.push_str("\r\n");
         }
-        let hdr_w: Vec<u16> = hdr.encode_utf16().collect();
-        WinHttpAddRequestHeaders(req.0, &hdr_w, WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE)
-            .map_err(|e| format!("headers: {e}"))?;
-        WinHttpSendRequest(req.0, None, Some(body.as_ptr() as *const _), body.len() as u32, body.len() as u32, 0)
+        if !hdr.is_empty() {
+            let hdr_w: Vec<u16> = hdr.encode_utf16().collect();
+            WinHttpAddRequestHeaders(req.0, &hdr_w, WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE)
+                .map_err(|e| format!("headers: {e}"))?;
+        }
+        let data = (!body.is_empty()).then(|| body.as_ptr() as *const _);
+        WinHttpSendRequest(req.0, None, data, body.len() as u32, body.len() as u32, 0)
             .map_err(|e| net_error("send", e))?;
         WinHttpReceiveResponse(req.0, std::ptr::null_mut()).map_err(|e| net_error("receive", e))?;
 

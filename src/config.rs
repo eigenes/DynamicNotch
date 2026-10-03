@@ -22,6 +22,10 @@ pub struct Config {
     pub downloads: DownloadsCfg,
     pub battery: BatteryCfg,
     pub ai: AiCfg,
+    pub locks: LocksCfg,
+    pub shelf: ShelfCfg,
+    pub ports: PortsCfg,
+    pub voice: VoiceCfg,
 }
 
 impl Default for Config {
@@ -37,6 +41,10 @@ impl Default for Config {
             downloads: DownloadsCfg::default(),
             battery: BatteryCfg::default(),
             ai: AiCfg::default(),
+            locks: LocksCfg::default(),
+            shelf: ShelfCfg::default(),
+            ports: PortsCfg::default(),
+            voice: VoiceCfg::default(),
         }
     }
 }
@@ -101,7 +109,7 @@ impl Default for Appearance {
             collapsed_opacity: 1.0,
             expanded_opacity: 0.82,
             blur: true,
-            shadow: true,
+            shadow: false,
             bounce: 0.3,
             animation_speed: 1.0,
             accent: "auto".into(),
@@ -118,6 +126,8 @@ pub struct Hotkeys {
     pub timer: String,
     pub clipboard: String,
     pub play_pause: String,
+    /// Voice dictation: tap to start/stop, or hold to talk and release to finish.
+    pub dictate: String,
 }
 
 impl Default for Hotkeys {
@@ -128,6 +138,7 @@ impl Default for Hotkeys {
             timer: "Ctrl+Alt+T".into(),
             clipboard: "Ctrl+Alt+V".into(),
             play_pause: String::new(),
+            dictate: "Ctrl+Alt+D".into(),
         }
     }
 }
@@ -142,11 +153,27 @@ pub struct Modules {
     pub clipboard: bool,
     pub battery: bool,
     pub ai: bool,
+    pub voice: bool,
+    pub shelf: bool,
+    pub ports: bool,
+    pub locks: bool,
 }
 
 impl Default for Modules {
     fn default() -> Self {
-        Self { media: true, timer: true, downloads: true, privacy: true, clipboard: true, battery: true, ai: true }
+        Self {
+            media: true,
+            timer: true,
+            downloads: true,
+            privacy: true,
+            clipboard: true,
+            battery: true,
+            ai: true,
+            voice: true,
+            shelf: true,
+            ports: true,
+            locks: true,
+        }
     }
 }
 
@@ -160,6 +187,10 @@ impl Modules {
             "clipboard" => self.clipboard,
             "battery" => self.battery,
             "ai" => self.ai,
+            "voice" => self.voice,
+            "shelf" => self.shelf,
+            "ports" => self.ports,
+            "locks" => self.locks,
             _ => true,
         }
     }
@@ -186,11 +217,13 @@ impl Default for MediaCfg {
 pub struct TimerCfg {
     pub presets_min: Vec<u32>,
     pub sound: bool,
+    /// Gain applied to the "done" chime (1.0 = as recorded).
+    pub sound_volume: f32,
 }
 
 impl Default for TimerCfg {
     fn default() -> Self {
-        Self { presets_min: vec![1, 3, 5, 10, 15, 25, 45], sound: true }
+        Self { presets_min: vec![1, 3, 5, 10, 15, 25, 45], sound: true, sound_volume: 1.6 }
     }
 }
 
@@ -255,6 +288,90 @@ impl Default for AiCfg {
             system_prompt: "You are a quick assistant living in a small desktop notch. \
                 Answer concisely: prefer a few short sentences or a compact list. Plain text, no markdown headings."
                 .into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LocksCfg {
+    /// Peek when Caps Lock / Num Lock / Scroll Lock is toggled.
+    pub caps: bool,
+    pub num: bool,
+    pub scroll: bool,
+}
+
+impl Default for LocksCfg {
+    fn default() -> Self {
+        Self { caps: true, num: true, scroll: false }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShelfCfg {
+    /// Keep parked files across restarts (only the paths are stored).
+    pub remember: bool,
+}
+
+impl Default for ShelfCfg {
+    fn default() -> Self {
+        Self { remember: true }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PortsCfg {
+    /// Peek when a dev server starts listening.
+    pub peek_on_start: bool,
+    /// Always show these ports, whatever process owns them.
+    pub extra_ports: Vec<u16>,
+    /// Never show these ports.
+    pub ignore_ports: Vec<u16>,
+    /// Extra process names that count as dev servers (e.g. "myserver.exe").
+    pub extra_processes: Vec<String>,
+}
+
+impl Default for PortsCfg {
+    fn default() -> Self {
+        Self { peek_on_start: true, extra_ports: Vec::new(), ignore_ports: Vec::new(), extra_processes: Vec::new() }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VoiceCfg {
+    /// Groq speech-to-text model. The API key is never stored here: it is read
+    /// from GROQ_API_KEY (environment or a git-ignored `.env` file).
+    pub model: String,
+    /// OpenAI-compatible API base URL.
+    pub endpoint: String,
+    /// "" = detect automatically, or an ISO code like "en" / "de".
+    pub language: String,
+    /// Names and terms the transcription should spell correctly.
+    pub vocabulary: Vec<String>,
+    /// LLM pass after transcription: "light" (fillers, punctuation),
+    /// "medium" (also light rephrasing) or "off".
+    pub cleanup: String,
+    pub cleanup_model: String,
+    /// Paste into the focused app; otherwise the text is only copied.
+    pub auto_paste: bool,
+    /// Recording stops automatically after this long.
+    pub max_seconds: u32,
+}
+
+impl Default for VoiceCfg {
+    fn default() -> Self {
+        Self {
+            model: "whisper-large-v3-turbo".into(),
+            endpoint: "https://api.groq.com/openai/v1".into(),
+            language: String::new(),
+            vocabulary: Vec::new(),
+            cleanup: "light".into(),
+            cleanup_model: "llama-3.1-8b-instant".into(),
+            auto_paste: true,
+            max_seconds: 300,
         }
     }
 }
@@ -333,6 +450,7 @@ impl Config {
         a.animation_speed = a.animation_speed.clamp(0.25, 4.0);
         a.scale = a.scale.clamp(0.5, 2.5);
         self.clipboard.history = self.clipboard.history.clamp(1, 30);
+        self.voice.max_seconds = self.voice.max_seconds.clamp(5, 780);
         self
     }
 }
@@ -358,7 +476,7 @@ expanded_width = 600
 collapsed_opacity = 1.0
 expanded_opacity = 0.82
 blur = true
-shadow = true
+shadow = false
 # 0 = no overshoot ... 1 = very bouncy
 bounce = 0.3
 animation_speed = 1.0
@@ -375,6 +493,8 @@ ai = "Ctrl+Alt+Space"
 timer = "Ctrl+Alt+T"
 clipboard = "Ctrl+Alt+V"
 play_pause = ""
+# Voice dictation: tap to start/stop, or hold to talk and release to finish.
+dictate = "Ctrl+Alt+D"
 
 [modules]
 media = true
@@ -384,6 +504,10 @@ privacy = true
 clipboard = true
 battery = true
 ai = true
+voice = true
+shelf = true
+ports = true
+locks = true
 
 [media]
 visualizer = true
@@ -393,6 +517,8 @@ linger_after_pause_secs = 20
 [timer]
 presets_min = [1, 3, 5, 10, 15, 25, 45]
 sound = true
+# loudness of the "done" chime; 1.0 = system default, capped before it would clip
+sound_volume = 1.6
 
 [clipboard]
 history = 8
@@ -417,6 +543,42 @@ model = "google/gemini-3.1-flash-lite"
 endpoint = "https://openrouter.ai/api/v1/chat/completions"
 max_tokens = 4096
 system_prompt = "You are a quick assistant living in a small desktop notch. Answer concisely: prefer a few short sentences or a compact list. Plain text, no markdown headings."
+
+[voice]
+# Speech to text with Groq. The API key is NOT stored here. Put it in a .env file:
+#   GROQ_API_KEY=gsk_...
+# (same places as OPENROUTER_API_KEY). Get one at https://console.groq.com/keys
+model = "whisper-large-v3-turbo"
+endpoint = "https://api.groq.com/openai/v1"
+# "" = detect the language automatically, or e.g. "en", "de"
+language = ""
+# Names and terms to spell correctly, e.g. ["Groq", "DynamicNotch"]
+vocabulary = []
+# Clean-up pass after transcription: "light" (fillers, punctuation), "medium" (also light rephrasing) or "off"
+cleanup = "light"
+cleanup_model = "llama-3.1-8b-instant"
+# Paste into the focused app; when false the text is only copied
+auto_paste = true
+max_seconds = 300
+
+[locks]
+# Peek when a lock key is toggled
+caps = true
+num = true
+scroll = false
+
+[shelf]
+# Keep parked files across restarts (only the paths are stored)
+remember = true
+
+[ports]
+# Peek when a dev server starts listening
+peek_on_start = true
+# Always show / never show these ports
+extra_ports = []
+ignore_ports = []
+# Extra process names that count as dev servers, e.g. ["myserver.exe"]
+extra_processes = []
 "##;
 
 #[cfg(test)]
@@ -432,6 +594,12 @@ mod tests {
         assert_eq!(c.hotkeys.ai, d.hotkeys.ai);
         assert_eq!(c.ai.model, d.ai.model);
         assert_eq!(c.timer.presets_min, d.timer.presets_min);
+        assert_eq!(c.hotkeys.dictate, d.hotkeys.dictate);
+        assert_eq!(c.voice.model, d.voice.model);
+        assert_eq!(c.voice.cleanup, d.voice.cleanup);
+        assert_eq!(c.locks.caps, d.locks.caps);
+        assert_eq!(c.ports.peek_on_start, d.ports.peek_on_start);
+        assert!(c.modules.voice && c.modules.shelf && c.modules.ports && c.modules.locks);
     }
 
     #[test]

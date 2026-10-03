@@ -176,7 +176,7 @@ fn scan_key(path: &str, non_packaged: bool, out: &mut Vec<String>) {
         }
         i += 1;
         let sub = from_wide(&name[..len as usize]);
-        if sub == "NonPackaged" {
+        if sub == "NonPackaged" || (non_packaged && is_own_exe(&sub)) {
             continue;
         }
         let read_q = |value: PCWSTR| -> u64 {
@@ -209,6 +209,11 @@ fn scan_key(path: &str, non_packaged: bool, out: &mut Vec<String>) {
     unsafe {
         let _ = RegCloseKey(h);
     }
+}
+
+/// Consent-store keys spell paths with '#' instead of '\'.
+fn is_own_exe(key: &str) -> bool {
+    std::env::current_exe().map_or(false, |p| key.replace('#', "\\").eq_ignore_ascii_case(&p.to_string_lossy()))
 }
 
 /// "C:#Program Files#Discord#Discord.exe" → "Discord";

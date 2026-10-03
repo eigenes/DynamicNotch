@@ -15,9 +15,13 @@ pub mod ai;
 pub mod battery;
 pub mod clipboard;
 pub mod downloads;
+pub mod locks;
 pub mod media;
+pub mod ports;
 pub mod privacy;
+pub mod shelf;
 pub mod timer;
+pub mod voice;
 
 use std::any::Any;
 use std::time::{Duration, Instant};
@@ -48,6 +52,11 @@ pub enum Slot {
     Battery {
         level: f32,
         charging: bool,
+    },
+    /// Live level meter (recent 0..1 levels, newest last), drawn across the wing.
+    Wave {
+        levels: Vec<f32>,
+        color: Color,
     },
 }
 
@@ -97,6 +106,8 @@ pub struct Peek {
     pub page: Option<ModuleId>,
     /// Replace any queued/visible peek with the same key instead of stacking.
     pub key: Option<&'static str>,
+    /// Window brought to the front when the peek is clicked (instead of `page`).
+    pub focus: Option<isize>,
 }
 
 impl Peek {
@@ -111,7 +122,12 @@ impl Peek {
             duration: Duration::from_millis(3200),
             page: None,
             key: None,
+            focus: None,
         }
+    }
+    pub fn focus(mut self, hwnd: isize) -> Self {
+        self.focus = (hwnd != 0).then_some(hwnd);
+        self
     }
     pub fn trailing(mut self, t: Trailing) -> Self {
         self.trailing = t;
@@ -156,6 +172,8 @@ pub struct Effects {
     pub keyboard_focus: Option<bool>,
     pub layout_changed: bool,
     pub save_config: Vec<(String, String, String)>,
+    /// Start an OLE drag of these files out of the notch.
+    pub drag_files: Option<Vec<String>>,
 }
 
 impl Effects {
@@ -181,6 +199,18 @@ pub enum SystemEvent {
     ConfigReloaded,
     /// The expanded notch opened/closed.
     Expanded(bool),
+    /// A watched key went down/up anywhere in the system (raw input). Only
+    /// lock keys and the dictation hotkey's key are forwarded; repeats are dropped.
+    RawKey {
+        vk: u16,
+        down: bool,
+    },
+    /// Files are being dragged over the notch (true) or left it (false).
+    DragHover(bool),
+    /// Files were dropped onto the notch.
+    Dropped(Vec<String>),
+    /// A drag out of the notch ended (files may have moved).
+    DragOutDone,
     /// Text from the command line / IPC addressed to a module.
     Command {
         verb: String,
@@ -260,10 +290,14 @@ pub fn all() -> Vec<Box<dyn Module>> {
     vec![
         Box::new(media::Media::new()),
         Box::new(timer::Timer::new()),
+        Box::new(voice::Voice::new()),
         Box::new(clipboard::Clipboard::new()),
         Box::new(downloads::Downloads::new()),
+        Box::new(shelf::Shelf::new()),
+        Box::new(ports::Ports::new()),
         Box::new(ai::Ai::new()),
         Box::new(privacy::Privacy::new()),
         Box::new(battery::Battery::new()),
+        Box::new(locks::Locks::new()),
     ]
 }

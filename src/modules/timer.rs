@@ -30,6 +30,7 @@ pub struct Timer {
     sw_accum: Duration,
     presets: Vec<u32>,
     sound: bool,
+    sound_volume: f32,
     expanded: bool,
 }
 
@@ -44,6 +45,7 @@ impl Timer {
             sw_accum: Duration::ZERO,
             presets: vec![1, 3, 5, 10, 15, 25, 45],
             sound: true,
+            sound_volume: 1.6,
             expanded: false,
         }
     }
@@ -144,6 +146,7 @@ impl Module for Timer {
     fn start(&mut self, cx: &mut Cx) {
         self.presets = cx.cfg.timer.presets_min.clone();
         self.sound = cx.cfg.timer.sound;
+        self.sound_volume = cx.cfg.timer.sound_volume;
     }
 
     fn on_system(&mut self, ev: &SystemEvent, cx: &mut Cx) {
@@ -152,6 +155,7 @@ impl Module for Timer {
             SystemEvent::ConfigReloaded => {
                 self.presets = cx.cfg.timer.presets_min.clone();
                 self.sound = cx.cfg.timer.sound;
+                self.sound_volume = cx.cfg.timer.sound_volume;
             }
             SystemEvent::Command { verb, args } if verb == "timer" => {
                 let mins = args.first().and_then(|a| a.parse::<f64>().ok()).unwrap_or(5.0);
@@ -194,6 +198,7 @@ impl Module for Timer {
             if Instant::now() + Duration::from_millis(5) >= end {
                 self.end = None;
                 self.paused_left = None;
+                crate::log!("timer done ({})", fmt_countdown(self.total));
                 cx.fx.peek(
                     Peek::new(Icon::Bell, TIMER_COLOR, "Timer done", format!("{} elapsed", fmt_countdown(self.total)))
                         .trailing(Trailing::Text("0:00".into(), TIMER_COLOR))
@@ -202,7 +207,7 @@ impl Module for Timer {
                         .page(ID),
                 );
                 if self.sound {
-                    sys::play_sound("Notification.Reminder");
+                    sys::play_sound_gain("Notification.Reminder", self.sound_volume);
                 }
             }
         }
