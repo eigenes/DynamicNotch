@@ -1,0 +1,98 @@
+name: Release
+
+# Push a tag like v0.2.0 to build x64 and ARM64 zips and publish a GitHub
+# release. The release notes are the matching section of CHANGELOG.md.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build (re-uploads the assets of its release)
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    name: build (${{ matrix.arch }})
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            arch: x64
+          - target: aarch64-pc-windows-msvc
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Package
+        shell: pwsh
+        run: |
+          $name = "dynamic-notch-$env:TAG-windows-${{ matrix.arch }}"
+          $dir = "dist/$name"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/dynamic-notch.exe", README.md, LICENSE, CHANGELOG.md, .env.example $dir
+          Compress-Archive -Path $dir -DestinationPath "dist/$name.zip"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.arch }}
+          path: dist/*.zip
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum *.zip | tee SHA256SUMS.txt
+      - name: Release notes
+        run: |
+          version="${TAG#v}"
+          awk -v v="$version" '
+            /^## \[/ { if (found) exit; if (index($0, "## [" v "]") == 1) { found = 1; next } }
+            /^\[[^]]*\]: / { next }
+            found
+          ' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "See [CHANGELOG.md](CHANGELOG.md)." > notes.md
+          cat >> notes.md <<'EOF'
+
+          ### Install
+
+          Download the zip for your PC, unzip it anywhere and run `dynamic-notch.exe`. Nothing else to install.
+
+          | Zip | For |
+          | --- | --- |
+          | `windows-x64` | Most Intel and AMD PCs |
+          | `windows-arm64` | Snapdragon and other Windows on ARM PCs |
+
+          The exe isn't code-signed yet, so SmartScreen may warn the first time: choose **More info → Run anyway**. SHA-256 checksums are in `SHA256SUMS.txt`.
+          EOF
+          cat notes.md
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --verify-tag --title "Dynamic Notch $TAG" --notes-file notes.md
+          fi

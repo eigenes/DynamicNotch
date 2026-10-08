@@ -1,0 +1,49 @@
+name: Bug report
+description: Something doesn't work or looks wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead? Screenshots or a short clip help a lot.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Dynamic Notch version
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: Run `winver` to see it.
+      placeholder: Windows 11 24H2 (26100)
+    validations:
+      required: true
+  - type: dropdown
+    id: arch
+    attributes:
+      label: Architecture
+      options:
+        - x64
+        - ARM64
+    validations:
+      required: true
+  - type: input
+    id: display
+    attributes:
+      label: Displays
+      description: Resolution and scaling of each monitor, and which one the notch is on.
+      placeholder: 3840x2160 at 150% (primary), 1920x1080 at 100%
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        The last lines of `%APPDATA%\DynamicNotch\notch.log`. Check it for anything private before pasting.
+        Never paste API keys or your `.env` file.
+      render: text

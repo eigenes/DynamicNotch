@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Website and interactive demo
+    url: https://eigenes.github.io/DynamicNotch/
+    about: See every module in action before filing an idea.

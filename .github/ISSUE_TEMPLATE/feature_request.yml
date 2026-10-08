@@ -1,0 +1,27 @@
+name: Feature or module idea
+description: Suggest something the notch could show or do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: Describe the situation you're in and what the notch should show or do then.
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where should it appear?
+      multiple: true
+      options:
+        - Live activity (collapsed notch)
+        - Peek (short banner)
+        - Home card (open notch)
+        - Its own tab
+        - Not sure
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Anything else?
+      description: Apps that do this well, Windows APIs that could help, mockups.
