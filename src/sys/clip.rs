@@ -40,7 +40,7 @@ pub fn get_text(hwnd: HWND) -> Option<String> {
         GetClipboardData(CF_UNICODETEXT.0 as u32).ok().and_then(|h| {
             with_global(h, |b| {
                 let w: Vec<u16> =
-                    b.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).take_while(|&c| c != 0).collect();
+                    b.as_chunks::<2>().0.iter().map(|&c| u16::from_le_bytes(c)).take_while(|&c| c != 0).collect();
                 String::from_utf16_lossy(&w)
             })
         })

@@ -202,13 +202,13 @@ fn amplify_wav(wav: &mut [u8], gain: f32) -> bool {
                 pcm16 = u16_at(wav, body) == 1 && u16_at(wav, body + 14) == 16;
             }
             b"data" if pcm16 => {
-                let samples = &mut wav[body..end - (end - body) % 2];
-                let peak = samples.chunks_exact(2).map(|s| i16::from_le_bytes([s[0], s[1]]).unsigned_abs()).max();
+                let samples = wav[body..end].as_chunks_mut::<2>().0;
+                let peak = samples.iter().map(|&s| i16::from_le_bytes(s).unsigned_abs()).max();
                 let limit = 32_000.0 / peak.unwrap_or(1).max(1) as f32;
                 let g = gain.max(0.0).min(limit);
-                for s in samples.chunks_exact_mut(2) {
-                    let v = (i16::from_le_bytes([s[0], s[1]]) as f32 * g).round().clamp(-32768.0, 32767.0) as i16;
-                    s.copy_from_slice(&v.to_le_bytes());
+                for s in samples.iter_mut() {
+                    let v = (i16::from_le_bytes(*s) as f32 * g).round().clamp(-32768.0, 32767.0) as i16;
+                    *s = v.to_le_bytes();
                 }
                 return true;
             }

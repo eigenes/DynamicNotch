@@ -227,15 +227,16 @@ pub fn thumbnail(path: &str, size: i32) -> Option<ImageData> {
 /// Shell bitmaps come either without alpha (photos: all zero) or with
 /// straight alpha (icons); the renderer wants premultiplied BGRA.
 fn fix_alpha(px: &mut [u8]) {
-    if px.chunks_exact(4).all(|p| p[3] == 0) {
-        for p in px.chunks_exact_mut(4) {
+    let px = px.as_chunks_mut::<4>().0;
+    if px.iter().all(|p| p[3] == 0) {
+        for p in px.iter_mut() {
             p[3] = 255;
         }
         return;
     }
-    let straight = px.chunks_exact(4).any(|p| p[0].max(p[1]).max(p[2]) > p[3]);
+    let straight = px.iter().any(|p| p[0].max(p[1]).max(p[2]) > p[3]);
     if straight {
-        for p in px.chunks_exact_mut(4) {
+        for p in px.iter_mut() {
             let a = p[3] as u32;
             for c in &mut p[..3] {
                 *c = ((*c as u32 * a + 127) / 255) as u8;

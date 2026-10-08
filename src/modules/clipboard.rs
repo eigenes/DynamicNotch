@@ -321,8 +321,10 @@ fn read_clipboard(hwnd: HWND) -> Option<(Kind, Option<Vec<u8>>)> {
             if let Ok(h) = GetClipboardData(CF_UNICODETEXT.0 as u32) {
                 let text = with_global(h, |b| {
                     let words: Vec<u16> = b
-                        .chunks_exact(2)
-                        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|&c| u16::from_le_bytes(c))
                         .take_while(|&c| c != 0)
                         .take(20_000)
                         .collect();

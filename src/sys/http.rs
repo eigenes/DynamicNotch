@@ -28,12 +28,9 @@ pub struct Url {
 }
 
 pub fn parse_url(url: &str) -> Option<Url> {
-    let (secure, rest) = if let Some(r) = url.strip_prefix("https://") {
-        (true, r)
-    } else if let Some(r) = url.strip_prefix("http://") {
-        (false, r)
-    } else {
-        return None;
+    let (secure, rest) = match url.strip_prefix("https://") {
+        Some(r) => (true, r),
+        None => (false, url.strip_prefix("http://")?),
     };
     let (hostport, path) = match rest.find('/') {
         Some(i) => (&rest[..i], &rest[i..]),

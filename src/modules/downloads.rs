@@ -374,7 +374,7 @@ impl Watch {
             let next = u32::from_le_bytes(base[0..4].try_into().unwrap()) as usize;
             let action = u32::from_le_bytes(base[4..8].try_into().unwrap());
             let len = u32::from_le_bytes(base[8..12].try_into().unwrap()) as usize;
-            let name: Vec<u16> = base[12..12 + len].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+            let name: Vec<u16> = base[12..12 + len].as_chunks::<2>().0.iter().map(|&c| u16::from_le_bytes(c)).collect();
             out.push((action, String::from_utf16_lossy(&name)));
             if next == 0 {
                 break;
