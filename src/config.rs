@@ -11,6 +11,7 @@ use crate::util::app_dir;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct Config {
     pub general: General,
     pub appearance: Appearance,
@@ -26,27 +27,8 @@ pub struct Config {
     pub shelf: ShelfCfg,
     pub ports: PortsCfg,
     pub voice: VoiceCfg,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            general: General::default(),
-            appearance: Appearance::default(),
-            hotkeys: Hotkeys::default(),
-            modules: Modules::default(),
-            media: MediaCfg::default(),
-            timer: TimerCfg::default(),
-            clipboard: ClipboardCfg::default(),
-            downloads: DownloadsCfg::default(),
-            battery: BatteryCfg::default(),
-            ai: AiCfg::default(),
-            locks: LocksCfg::default(),
-            shelf: ShelfCfg::default(),
-            ports: PortsCfg::default(),
-            voice: VoiceCfg::default(),
-        }
-    }
+    pub osd: OsdCfg,
+    pub bluetooth: BluetoothCfg,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -157,6 +139,9 @@ pub struct Modules {
     pub shelf: bool,
     pub ports: bool,
     pub locks: bool,
+    pub osd: bool,
+    pub bluetooth: bool,
+    pub stats: bool,
 }
 
 impl Default for Modules {
@@ -173,6 +158,9 @@ impl Default for Modules {
             shelf: true,
             ports: true,
             locks: true,
+            osd: true,
+            bluetooth: true,
+            stats: true,
         }
     }
 }
@@ -191,6 +179,9 @@ impl Modules {
             "shelf" => self.shelf,
             "ports" => self.ports,
             "locks" => self.locks,
+            "osd" => self.osd,
+            "bluetooth" => self.bluetooth,
+            "stats" => self.stats,
             _ => true,
         }
     }
@@ -376,10 +367,47 @@ impl Default for VoiceCfg {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OsdCfg {
+    /// Peek when the output volume or mute state changes.
+    pub volume: bool,
+    /// Handle the volume keys ourselves so Windows' own flyout stays hidden
+    /// (falls back to the Windows flyout while the notch is hidden or open).
+    pub replace_system_flyout: bool,
+    /// Volume change per key press, in percent.
+    pub volume_step: u32,
+    /// Peek when the built-in display's brightness changes.
+    pub brightness: bool,
+}
+
+impl Default for OsdCfg {
+    fn default() -> Self {
+        Self { volume: true, replace_system_flyout: true, volume_step: 2, brightness: true }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BluetoothCfg {
+    pub peek_on_connect: bool,
+    pub peek_on_disconnect: bool,
+    /// Warn once when a connected device's battery drops to this percentage.
+    pub low_battery: u8,
+}
+
+impl Default for BluetoothCfg {
+    fn default() -> Self {
+        Self { peek_on_connect: true, peek_on_disconnect: true, low_battery: 15 }
+    }
+}
+
 pub fn config_path() -> PathBuf {
     app_dir().join("config.toml")
 }
 
+// returned once per load and unpacked right away; boxing would buy nothing
+#[allow(clippy::large_enum_variant)]
 pub enum LoadResult {
     Ok(Config),
     /// File had errors; defaults (or last good config) should be kept.
@@ -451,6 +479,8 @@ impl Config {
         a.scale = a.scale.clamp(0.5, 2.5);
         self.clipboard.history = self.clipboard.history.clamp(1, 30);
         self.voice.max_seconds = self.voice.max_seconds.clamp(5, 780);
+        self.osd.volume_step = self.osd.volume_step.clamp(1, 25);
+        self.bluetooth.low_battery = self.bluetooth.low_battery.min(100);
         self
     }
 }
@@ -508,6 +538,9 @@ voice = true
 shelf = true
 ports = true
 locks = true
+osd = true
+bluetooth = true
+stats = true
 
 [media]
 visualizer = true
@@ -579,6 +612,23 @@ extra_ports = []
 ignore_ports = []
 # Extra process names that count as dev servers, e.g. ["myserver.exe"]
 extra_processes = []
+
+[osd]
+# Volume / brightness peeks
+volume = true
+# Take over the volume keys so the Windows flyout stays hidden
+# (the Windows flyout still shows while the notch is hidden or open)
+replace_system_flyout = true
+# Percent per volume key press
+volume_step = 2
+# Built-in display only; Windows may still show its own brightness flyout
+brightness = true
+
+[bluetooth]
+peek_on_connect = true
+peek_on_disconnect = true
+# Warn once when a connected device's battery drops to this percentage (0 = off)
+low_battery = 15
 "##;
 
 #[cfg(test)]
@@ -600,6 +650,10 @@ mod tests {
         assert_eq!(c.locks.caps, d.locks.caps);
         assert_eq!(c.ports.peek_on_start, d.ports.peek_on_start);
         assert!(c.modules.voice && c.modules.shelf && c.modules.ports && c.modules.locks);
+        assert!(c.modules.osd && c.modules.bluetooth && c.modules.stats);
+        assert_eq!(c.osd.volume_step, d.osd.volume_step);
+        assert_eq!(c.osd.replace_system_flyout, d.osd.replace_system_flyout);
+        assert_eq!(c.bluetooth.low_battery, d.bluetooth.low_battery);
     }
 
     #[test]

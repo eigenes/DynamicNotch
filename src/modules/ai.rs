@@ -192,7 +192,7 @@ fn request(endpoint: String, key: String, body: Value, gen: u64, cancel: Arc<Ato
         ("Authorization", format!("Bearer {key}")),
         ("Content-Type", "application/json".to_string()),
         ("Accept", "text/event-stream".to_string()),
-        ("HTTP-Referer", "https://github.com/dynamic-notch".to_string()),
+        ("HTTP-Referer", "https://github.com/eigenes/DynamicNotch".to_string()),
         ("X-Title", "Dynamic Notch".to_string()),
     ];
     let payload = body.to_string().into_bytes();
@@ -288,7 +288,7 @@ impl Module for Ai {
                 self.streaming = false;
                 self.cancel = None;
                 self.error = Some(e);
-                if self.current.as_ref().map_or(false, |c| c.assistant.is_empty()) {
+                if self.current.as_ref().is_some_and(|c| c.assistant.is_empty()) {
                     // restore the prompt so it can be retried
                     if let Some(c) = self.current.take() {
                         self.input = c.user.chars().collect();
@@ -322,7 +322,7 @@ impl Module for Ai {
     fn next_tick(&self) -> Option<Instant> {
         // caret blink while the page is on screen; the loader and fades
         // request their own frames from draw_page while they run
-        let visible = self.expanded && self.last_draw.map_or(false, |t| t.elapsed() < Duration::from_millis(800));
+        let visible = self.expanded && self.last_draw.is_some_and(|t| t.elapsed() < Duration::from_millis(800));
         (visible && !self.streaming).then(|| Instant::now() + Duration::from_millis(530))
     }
 
@@ -455,7 +455,7 @@ impl Module for Ai {
             }
             ui.p.text(&all, Rect::new(text_r.x - shift, text_r.y, tw + 20.0, text_r.h), &st);
         }
-        let blink = (self.last_key.elapsed().as_millis() / 530) % 2 == 0;
+        let blink = (self.last_key.elapsed().as_millis() / 530).is_multiple_of(2);
         if focused && blink && !self.streaming {
             let x = text_r.x + caret_x - shift;
             ui.p.fill_rect(Rect::new(x, field.cy() - 9.0, 1.6, 18.0), accent);

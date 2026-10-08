@@ -77,20 +77,20 @@ impl ButtonStyle {
 #[allow(dead_code)]
 impl<'p, 'a> Ui<'p, 'a> {
     pub fn hovered(&self, r: Rect) -> bool {
-        self.interactive && self.input.mouse.map_or(false, |(x, y)| r.contains(x, y))
+        self.interactive && self.input.mouse.is_some_and(|(x, y)| r.contains(x, y))
     }
 
     pub fn pressed(&self, r: Rect) -> bool {
         self.interactive
-            && self.input.down.map_or(false, |(x, y)| r.contains(x, y))
-            && self.input.mouse.map_or(false, |(x, y)| r.contains(x, y))
+            && self.input.down.is_some_and(|(x, y)| r.contains(x, y))
+            && self.input.mouse.is_some_and(|(x, y)| r.contains(x, y))
     }
 
     pub fn clicked(&mut self, r: Rect) -> bool {
         if !self.interactive {
             return false;
         }
-        let hit = self.input.click.map_or(false, |((px, py), (ux, uy))| r.contains(px, py) && r.contains(ux, uy));
+        let hit = self.input.click.is_some_and(|((px, py), (ux, uy))| r.contains(px, py) && r.contains(ux, uy));
         if hit {
             self.fx.redraw = true;
         }
@@ -107,7 +107,7 @@ impl<'p, 'a> Ui<'p, 'a> {
     }
 
     pub fn right_clicked(&self, r: Rect) -> bool {
-        self.interactive && self.input.right_click.map_or(false, |(x, y)| r.contains(x, y))
+        self.interactive && self.input.right_click.is_some_and(|(x, y)| r.contains(x, y))
     }
 
     pub fn wheel(&self, r: Rect) -> f32 {

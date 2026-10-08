@@ -213,7 +213,7 @@ fn scan_key(path: &str, non_packaged: bool, out: &mut Vec<String>) {
 
 /// Consent-store keys spell paths with '#' instead of '\'.
 fn is_own_exe(key: &str) -> bool {
-    std::env::current_exe().map_or(false, |p| key.replace('#', "\\").eq_ignore_ascii_case(&p.to_string_lossy()))
+    std::env::current_exe().is_ok_and(|p| key.replace('#', "\\").eq_ignore_ascii_case(&p.to_string_lossy()))
 }
 
 /// "C:#Program Files#Discord#Discord.exe" → "Discord";

@@ -126,10 +126,15 @@ impl Voice {
         }
         if dotenv::get(stt::KEY_VAR).is_none() {
             cx.fx.peek(
-                Peek::new(Icon::Mic, palette::ORANGE, "Dictation needs a Groq API key", format!("Add {}=… to .env", stt::KEY_VAR))
-                    .key("voice")
-                    .duration_ms(5000)
-                    .page(ID),
+                Peek::new(
+                    Icon::Mic,
+                    palette::ORANGE,
+                    "Dictation needs a Groq API key",
+                    format!("Add {}=… to .env", stt::KEY_VAR),
+                )
+                .key("voice")
+                .duration_ms(5000)
+                .page(ID),
             );
             return;
         }
@@ -226,7 +231,8 @@ impl Voice {
         let hk = if self.hotkey.trim().is_empty() { "the mic button".to_string() } else { self.hotkey.clone() };
         match self.phase {
             Phase::Recording => {
-                let hint = if self.pressed_at.is_some() { "Release to finish" } else { "Press again or click to finish" };
+                let hint =
+                    if self.pressed_at.is_some() { "Release to finish" } else { "Press again or click to finish" };
                 (format!("Listening  {}", fmt_secs(self.started_at.elapsed())), format!("{hint} · {hk}"))
             }
             Phase::Transcribing => ("Transcribing…".into(), self.cfg.model.clone()),
@@ -335,9 +341,14 @@ impl Module for Voice {
                 } else if audio::rms(&samples) < MIN_RMS {
                     self.set_phase(Phase::Idle);
                     cx.fx.peek(
-                        Peek::new(Icon::Mic, palette::ORANGE, "Didn't hear anything", "Check that the right microphone is the default")
-                            .key("voice")
-                            .page(ID),
+                        Peek::new(
+                            Icon::Mic,
+                            palette::ORANGE,
+                            "Didn't hear anything",
+                            "Check that the right microphone is the default",
+                        )
+                        .key("voice")
+                        .page(ID),
                     );
                 } else {
                     self.transcribe(samples);
@@ -346,7 +357,11 @@ impl Module for Voice {
             VoiceMsg::Transcribed(g, text) if g == self.gen => {
                 self.set_phase(Phase::Idle);
                 if text.trim().is_empty() {
-                    cx.fx.peek(Peek::new(Icon::Mic, palette::TEXT_DIM, "No speech detected", "").key("voice").duration_ms(1800));
+                    cx.fx.peek(
+                        Peek::new(Icon::Mic, palette::TEXT_DIM, "No speech detected", "")
+                            .key("voice")
+                            .duration_ms(1800),
+                    );
                     return;
                 }
                 let paste = self.cfg.auto_paste;
@@ -396,7 +411,7 @@ impl Module for Voice {
             }
             SystemEvent::RawKey { vk, down: false } if *vk == self.dictate_vk && self.phase == Phase::Recording => {
                 // push-to-talk: a long press ends with its release; a tap keeps recording
-                if self.pressed_at.map_or(false, |t| cx.now - t >= HOLD) {
+                if self.pressed_at.is_some_and(|t| cx.now - t >= HOLD) {
                     self.finish();
                     cx.fx.redraw = true;
                 } else {
@@ -409,9 +424,10 @@ impl Module for Voice {
 
     fn activity(&self) -> Option<Activity> {
         let (left, right) = match self.phase {
-            Phase::Recording => {
-                (Slot::Icon(Icon::Mic, REC_COLOR), Slot::Wave { levels: self.levels.iter().copied().collect(), color: REC_COLOR })
-            }
+            Phase::Recording => (
+                Slot::Icon(Icon::Mic, REC_COLOR),
+                Slot::Wave { levels: self.levels.iter().copied().collect(), color: REC_COLOR },
+            ),
             Phase::Transcribing => (Slot::Ring(None, palette::PURPLE), Slot::Text("Writing".into(), palette::TEXT_DIM)),
             Phase::Idle => return None,
         };

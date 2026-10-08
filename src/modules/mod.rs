@@ -13,13 +13,16 @@
 
 pub mod ai;
 pub mod battery;
+pub mod bluetooth;
 pub mod clipboard;
 pub mod downloads;
 pub mod locks;
 pub mod media;
+pub mod osd;
 pub mod ports;
 pub mod privacy;
 pub mod shelf;
+pub mod stats;
 pub mod timer;
 pub mod voice;
 
@@ -89,7 +92,17 @@ pub enum Trailing {
     None,
     Text(String, Color),
     Ring(f32, Color),
-    Battery { level: f32, charging: bool },
+    Battery {
+        level: f32,
+        charging: bool,
+    },
+    /// Slider-style level bar under the title with the percentage on the
+    /// right (volume / brightness). `None` text shows the percentage.
+    Level {
+        frac: f32,
+        color: Color,
+        text: Option<String>,
+    },
 }
 
 /// A transient banner ("peek") the notch expands into for a few seconds.
@@ -108,6 +121,9 @@ pub struct Peek {
     pub key: Option<&'static str>,
     /// Window brought to the front when the peek is clicked (instead of `page`).
     pub focus: Option<isize>,
+    /// Show right away, pushing a visible peek back into the queue
+    /// (feedback for a key press is useless when it arrives late).
+    pub instant: bool,
 }
 
 impl Peek {
@@ -123,7 +139,12 @@ impl Peek {
             page: None,
             key: None,
             focus: None,
+            instant: false,
         }
+    }
+    pub fn instant(mut self) -> Self {
+        self.instant = true;
+        self
     }
     pub fn focus(mut self, hwnd: isize) -> Self {
         self.focus = (hwnd != 0).then_some(hwnd);
@@ -211,6 +232,12 @@ pub enum SystemEvent {
     Dropped(Vec<String>),
     /// A drag out of the notch ended (files may have moved).
     DragOutDone,
+    /// A global hotkey a module registered on the notch window (`cx.hwnd`)
+    /// fired. Ids 0x4E00..0x4F00 belong to the shell's own hotkeys.
+    Hotkey(i32),
+    /// Whether a peek pushed now would be seen changed (notch hidden,
+    /// fullscreen app, or the notch is open). See `app::peeks_shown`.
+    PeeksShown(bool),
     /// Text from the command line / IPC addressed to a module.
     Command {
         verb: String,
@@ -290,6 +317,8 @@ pub fn all() -> Vec<Box<dyn Module>> {
     vec![
         Box::new(media::Media::new()),
         Box::new(timer::Timer::new()),
+        // right after the timer so its home tile isn't crowded out
+        Box::new(stats::Stats::new()),
         Box::new(voice::Voice::new()),
         Box::new(clipboard::Clipboard::new()),
         Box::new(downloads::Downloads::new()),
@@ -299,5 +328,7 @@ pub fn all() -> Vec<Box<dyn Module>> {
         Box::new(privacy::Privacy::new()),
         Box::new(battery::Battery::new()),
         Box::new(locks::Locks::new()),
+        Box::new(osd::Osd::new()),
+        Box::new(bluetooth::Bluetooth::new()),
     ]
 }

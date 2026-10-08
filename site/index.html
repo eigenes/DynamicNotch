@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dynamic Notch for Windows</title>
+  <meta name="description" content="A MacBook-style dynamic notch for Windows. Music, timers, downloads, dictation and AI live in a small black island at the top of your screen. Free and open source.">
+  <meta name="theme-color" content="#1C1916">
+  <meta property="og:title" content="Dynamic Notch for Windows">
+  <meta property="og:description" content="Music, timers, downloads, dictation and AI in a small black island at the top of your screen.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Geist:wght@400;500;600&family=Newsreader:opsz,wght@6..72,300;6..72,400;6..72,500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script src="js/notch.js" defer></script>
+  <script src="js/iso.js" defer></script>
+  <script src="js/main.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="bar" id="bar">
+    <!-- the middle column stays empty: that's where the notch hangs -->
+    <div class="bar-inner">
+      <div class="bar-side">
+        <a class="brand" href="#top">
+          <svg class="brand-mark" viewBox="0 0 40 20" aria-hidden="true"><path d="M0 0a5 5 0 0 1 5 5v7a8 8 0 0 0 8 8h14a8 8 0 0 0 8-8V5a5 5 0 0 1 5-5z"/></svg>
+          <span>Dynamic Notch</span>
+        </a>
+        <nav class="bar-nav" aria-label="Sections">
+          <a href="#states">How it works</a>
+          <a href="#modules">Modules</a>
+        </nav>
+      </div>
+      <div class="bar-side bar-actions">
+        <nav class="bar-nav" aria-label="More sections">
+          <a href="#scripting">Scripting</a>
+          <a href="#performance">Performance</a>
+        </nav>
+        <a class="bar-link" href="https://github.com/eigenes/DynamicNotch">GitHub</a>
+        <a class="btn btn-primary btn-sm" href="https://github.com/eigenes/DynamicNotch/releases/latest">Download</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- The page's own notch. It takes over from the hero demo once you scroll. -->
+  <div class="page-notch" id="pageNotch"></div>
+
+  <main id="main">
+    <!-- ============================================================ hero -->
+    <section class="hero" id="top">
+      <div class="wrap hero-head">
+        <h1>The notch Windows never had.</h1>
+        <div class="hero-side">
+          <p class="lede">Dynamic Notch puts a small black island at the top of your screen. Music, timers, downloads, dictation and AI live inside it. It grows when something happens and gets out of the way when nothing does.</p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="https://github.com/eigenes/DynamicNotch/releases/latest">
+              <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/></svg>
+              Download for Windows
+            </a>
+            <a class="btn btn-ghost" href="https://github.com/eigenes/DynamicNotch">View source</a>
+          </div>
+          <p class="fine">Free and open source. Windows 10 and 11, x64 and ARM64.</p>
+        </div>
+      </div>
+
+      <div class="wrap">
+        <figure class="stage" id="stage">
+          <div class="stage-viewport" id="stageViewport">
+            <div class="screen" id="screen" aria-hidden="true">
+              <div class="wallpaper"></div>
+
+              <div class="win win-editor">
+                <div class="win-bar"><span class="win-title">app.rs — dynamic-notch</span><span class="win-ctl"><i></i><i></i><i></i></span></div>
+                <div class="editor">
+                  <div class="editor-tree">
+                    <span class="t-dir">src</span><span>anim.rs</span><span class="on">app.rs</span><span>host.rs</span><span>pacer.rs</span><span class="t-dir">modules</span><span>media.rs</span><span>timer.rs</span><span>voice.rs</span>
+                  </div>
+                  <div class="editor-code" id="editorCode"></div>
+                </div>
+              </div>
+
+              <div class="win win-term">
+                <div class="win-bar"><span class="win-title">claude — dynamic-notch</span><span class="win-ctl"><i></i><i></i><i></i></span></div>
+                <div class="term" id="stageTerm">
+                  <p><span class="t-dim">~/dynamic-notch</span> claude</p>
+                  <p class="t-you">&gt; make peeks with the same key replace each other</p>
+                  <p><span class="t-dot">●</span> Read <span class="t-dim">src/app.rs</span></p>
+                  <p><span class="t-dot">●</span> Edit <span class="t-dim">src/app.rs</span> <span class="t-add">+18</span> <span class="t-del">−6</span></p>
+                  <p class="t-late" data-step="1"><span class="t-dot">●</span> Bash <span class="t-dim">cargo test</span> <span class="t-ok">41 passed</span></p>
+                  <p class="t-late" data-step="2"><span class="t-ok">✓</span> Done in 1m 12s</p>
+                  <p class="t-cursor"><span></span></p>
+                </div>
+              </div>
+
+              <div class="taskbar">
+                <div class="tb-apps">
+                  <span class="tb-start"><i></i><i></i><i></i><i></i></span>
+                  <span class="tb-search"></span>
+                  <span class="tb-app" style="--c:#2B2724"><b>&gt;_</b></span>
+                  <span class="tb-app" style="--c:#3D5A80"></span>
+                  <span class="tb-app" style="--c:#E9B44C"></span>
+                  <span class="tb-app" style="--c:#7FC8B5"></span>
+                  <span class="tb-app" style="--c:#A897F5"></span>
+                </div>
+                <div class="tb-tray"><span>ENG</span><span class="tb-clock"><b>14:32</b><em>04.10.2026</em></span></div>
+              </div>
+
+              <div class="stage-notch" id="stageNotch"></div>
+              <svg class="cursor" id="cursor" viewBox="0 0 20 24"><path d="M2 1.5v18.2l5-4.6 3.3 7.2 3-1.4-3.2-7H17z" fill="#fff" stroke="#111" stroke-width="1.3" stroke-linejoin="round"/></svg>
+            </div>
+          </div>
+          <figcaption class="stage-controls">
+            <div class="chips" id="chips" role="tablist" aria-label="Demo scenes"></div>
+            <button class="pause" id="pauseBtn" type="button" aria-pressed="false">
+              <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1.3" class="f"/><rect x="13.5" y="5" width="4" height="14" rx="1.3" class="f"/></svg>
+              <span>Pause</span>
+            </button>
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ========================================================== states -->
+    <section class="states" id="states">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Small until something happens.</h2>
+          <p>The notch moves between four sizes with the same spring physics the app uses. Scroll to step through them.</p>
+        </div>
+        <div class="states-grid">
+          <ol class="steps" id="steps">
+            <li class="step" data-state="rest">
+              <span class="step-n">1</span>
+              <h3>Rests</h3>
+              <p>A 188 by 32 pixel notch at the top of your main monitor. Hover it and it leans toward your cursor. It hides for fullscreen games, videos and presentations.</p>
+            </li>
+            <li class="step" data-state="live">
+              <span class="step-n">2</span>
+              <h3>Lives</h3>
+              <p>When music plays or a timer runs, the notch widens just enough to show it: album art and a visualizer, or a countdown ring. A second live activity gets its own bubble.</p>
+            </li>
+            <li class="step" data-state="peek">
+              <span class="step-n">3</span>
+              <h3>Peeks</h3>
+              <p>Events slide out for about three seconds. A finished download, a plugged-in charger, Caps Lock, a new track. Click a peek to open what it's about.</p>
+            </li>
+            <li class="step" data-state="open">
+              <span class="step-n">4</span>
+              <h3>Opens</h3>
+              <p>Hover, click or press <kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>N</kbd> for the full panel on frosted glass. It closes as soon as your mouse leaves.</p>
+            </li>
+          </ol>
+          <div class="states-stage">
+            <div class="laptop-fit" id="laptopFit">
+              <div class="laptop" id="laptop"></div>
+            </div>
+            <p class="dim-readout" id="dimReadout" aria-live="polite"><span>188 × 32</span> px</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================= modules -->
+    <section class="modules" id="modules">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Twelve modules, one place for them.</h2>
+          <p>Each module is a single Rust file that sleeps until Windows tells it something changed. Hover or tap one to try it in the notch at the top of this page.</p>
+        </div>
+        <div class="grid" id="moduleGrid">
+          <article class="tile" data-module="media">
+            <div class="tile-art"></div>
+            <h3>Media</h3>
+            <p>Artwork, title and controls for whatever is playing. The visualizer takes its color from the album art.</p>
+            <p class="wired">System Media Transport Controls</p>
+            <button class="tile-hit" type="button" aria-label="Show Media in the notch"></button>
+          </article>
+          <article class="tile" data-module="timer">
+            <div class="tile-art"></div>
+            <h3>Timer</h3>
+            <p>Timers and a stopwatch, with a countdown ring in the notch. <kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>T</kbd> starts one.</p>
+            <p class="wired">Ticks only while running</p>
+            <button class="tile-hit" type="button" aria-label="Show Timer in the notch"></button>
+          </article>
+          <article class="tile" data-module="downloads">
+            <div class="tile-art"></div>
+            <h3>Downloads</h3>
+            <p>Browser downloads with size and speed, and a peek when they finish. Open the file or its folder from there.</p>
+            <p class="wired">ReadDirectoryChangesW</p>
+            <button class="tile-hit" type="button" aria-label="Show Downloads in the notch"></button>
+          </article>
+          <article class="tile" data-module="clipboard">
+            <div class="tile-art"></div>
+            <h3>Clipboard</h3>
+            <p>Your recent copies: text, links, files and images. Click one to copy it again.</p>
+            <p class="wired">Memory only, skips password managers</p>
+            <button class="tile-hit" type="button" aria-label="Show Clipboard in the notch"></button>
+          </article>
+          <article class="tile" data-module="shelf">
+            <div class="tile-art"></div>
+            <h3>Shelf</h3>
+            <p>Drop files on the notch to park them, then drag them out into any folder or app later.</p>
+            <p class="wired">OLE drag and drop</p>
+            <button class="tile-hit" type="button" aria-label="Show Shelf in the notch"></button>
+          </article>
+          <article class="tile" data-module="voice">
+            <div class="tile-art"></div>
+            <h3>Dictation</h3>
+            <p>Hold <kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>D</kbd> and speak. The text is typed into the app you were using.</p>
+            <p class="wired">WASAPI capture, Whisper on Groq</p>
+            <button class="tile-hit" type="button" aria-label="Show Dictation in the notch"></button>
+          </article>
+          <article class="tile" data-module="ai">
+            <div class="tile-art"></div>
+            <h3>Ask AI</h3>
+            <p>A quick prompt on <kbd>Ctrl</kbd> <kbd>Alt</kbd> <kbd>Space</kbd>, with streamed answers and follow-ups.</p>
+            <p class="wired">OpenRouter, any model</p>
+            <button class="tile-hit" type="button" aria-label="Show Ask AI in the notch"></button>
+          </article>
+          <article class="tile" data-module="privacy">
+            <div class="tile-art"></div>
+            <h3>Mic and camera</h3>
+            <p>A green or orange dot whenever an app is using your microphone or camera, and a peek naming it.</p>
+            <p class="wired">Windows capability consent store</p>
+            <button class="tile-hit" type="button" aria-label="Show Mic and camera in the notch"></button>
+          </article>
+          <article class="tile" data-module="ports">
+            <div class="tile-art"></div>
+            <h3>Ports</h3>
+            <p>Local dev servers on localhost as they start, each with an Open button.</p>
+            <p class="wired">TCP listener table</p>
+            <button class="tile-hit" type="button" aria-label="Show Ports in the notch"></button>
+          </article>
+          <article class="tile" data-module="locks">
+            <div class="tile-art"></div>
+            <h3>Lock keys</h3>
+            <p>A short peek when Caps Lock, Num Lock or Scroll Lock changes, so you stop typing in capitals.</p>
+            <p class="wired">Raw keyboard input</p>
+            <button class="tile-hit" type="button" aria-label="Show Lock keys in the notch"></button>
+          </article>
+          <article class="tile" data-module="battery">
+            <div class="tile-art"></div>
+            <h3>Battery</h3>
+            <p>Level and charging state in the header, with peeks for plugged in, unplugged, low and full.</p>
+            <p class="wired">WM_POWERBROADCAST</p>
+            <button class="tile-hit" type="button" aria-label="Show Battery in the notch"></button>
+          </article>
+          <article class="tile" data-module="claude">
+            <div class="tile-art"></div>
+            <h3>Claude Code</h3>
+            <p>Tells you when Claude finishes or needs you. Click the peek to bring its terminal back.</p>
+            <p class="wired">Stop and Notification hooks</p>
+            <button class="tile-hit" type="button" aria-label="Show Claude Code in the notch"></button>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================= scripting -->
+    <section class="scripting" id="scripting">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Your scripts can use it too.</h2>
+          <p>Run the exe again while the notch is running and it hands the command to the running notch. Put it at the end of a build, a render or a backup.</p>
+        </div>
+        <div class="console">
+          <div class="cmd-list" id="cmdList" aria-label="Example commands"></div>
+          <div class="console-term" aria-live="polite">
+            <div class="console-bar"><span>Windows PowerShell</span><span class="console-hint">Watch the notch at the top of the page</span></div>
+            <pre class="console-out" id="consoleOut"></pre>
+          </div>
+        </div>
+
+        <div class="claude-block">
+          <div>
+            <h3>Know when Claude is done.</h3>
+            <p>Add <code>dynamic-notch claude</code> as a Stop and Notification hook in Claude Code. It stays quiet while you're looking at the terminal Claude runs in, and peeks when you're not. Clicking the peek brings that terminal to the front.</p>
+          </div>
+          <pre class="code"><code><span class="c-k">"hooks"</span>: {
+  <span class="c-k">"Stop"</span>: [{ <span class="c-k">"hooks"</span>: [{
+    <span class="c-k">"type"</span>: <span class="c-s">"command"</span>,
+    <span class="c-k">"command"</span>: <span class="c-s">"dynamic-notch claude"</span>
+  }] }],
+  <span class="c-k">"Notification"</span>: [{ <span class="c-k">"hooks"</span>: [{
+    <span class="c-k">"type"</span>: <span class="c-s">"command"</span>,
+    <span class="c-k">"command"</span>: <span class="c-s">"dynamic-notch claude"</span>
+  }] }]
+}</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================================================== performance -->
+    <section class="performance" id="performance">
+      <div class="wrap">
+        <div class="perf-grid">
+          <div class="section-head">
+            <h2>Zero CPU while it waits.</h2>
+            <p>Written in Rust on the Windows compositor. Nothing is drawn unless something changes, and the visualizer is animated by the compositor itself, so music costs no CPU either.</p>
+          </div>
+          <div>
+            <div class="layers-fig" id="layersFig" aria-hidden="true"></div>
+            <ol class="layers-legend" aria-label="How the notch is drawn, top layer first">
+              <li><b>Visualizer</b><span>animated by the compositor</span></li>
+              <li><b>Content</b><span>Direct2D, composition swap chain</span></li>
+              <li><b>Backdrop blur</b><span>HostBackdropBrush</span></li>
+              <li><b>Your desktop</b><span>whatever is behind the notch</span></li>
+            </ol>
+          </div>
+        </div>
+
+        <dl class="specs">
+          <div><dt>Idle CPU</dt><dd>0 ms <span>per 10 s</span></dd></div>
+          <div><dt>Memory</dt><dd>25 MB <span>private, idle</span></dd></div>
+          <div><dt>Download</dt><dd>1 MB <span>no runtime needed</span></dd></div>
+          <div><dt>Startup</dt><dd>0.35 s <span>to first frame</span></dd></div>
+        </dl>
+        <p class="footnote">Measured on an ARM64 laptop at 4K and 150% scaling, release build.</p>
+
+        <div class="frames">
+          <div class="frames-copy">
+            <h3>Frames only while it moves.</h3>
+            <p>This graph counts the frames drawn by the notches on this page, which work the same way as the app. Hover the notch at the top, then watch it fall back to zero.</p>
+          </div>
+          <div class="frames-chart">
+            <div class="frames-legend"><span>Frames per second</span><b id="fpsNow" class="tnum">0</b></div>
+            <canvas id="framesCanvas" width="720" height="180" aria-label="Live graph of frames drawn per second"></canvas>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================= install -->
+    <section class="install" id="install">
+      <div class="wrap install-grid">
+        <div>
+          <h2>Set up in a minute.</h2>
+          <ol class="install-steps">
+            <li>
+              <h3>Download</h3>
+              <p>Get the x64 or ARM64 zip from the latest release and unzip it anywhere, or build it yourself with <code>cargo build --release</code>.</p>
+            </li>
+            <li>
+              <h3>Run it</h3>
+              <p>The notch appears at the top of your main monitor. Right-click it, or use the tray icon, to pick modules, a monitor and autostart.</p>
+            </li>
+            <li>
+              <h3>Add keys, if you want AI</h3>
+              <p>Ask AI uses <code>OPENROUTER_API_KEY</code> and dictation uses <code>GROQ_API_KEY</code>. Put them in a <code>.env</code> file. They are never written to the config.</p>
+            </li>
+          </ol>
+        </div>
+        <div class="config">
+          <p class="config-path">%APPDATA%\DynamicNotch\config.toml</p>
+          <pre class="code"><code><span class="c-h">[general]</span>
+monitor = <span class="c-s">"primary"</span>        <span class="c-c"># or "active", 1, 2…</span>
+expand_on_hover = <span class="c-n">true</span>
+idle_style = <span class="c-s">"notch"</span>       <span class="c-c"># "pill" | "hidden"</span>
+
+<span class="c-h">[appearance]</span>
+blur = <span class="c-n">true</span>
+bounce = <span class="c-n">0.3</span>                <span class="c-c"># spring overshoot</span>
+accent = <span class="c-s">"auto"</span>           <span class="c-c"># from album art</span>
+
+<span class="c-h">[hotkeys]</span>
+toggle = <span class="c-s">"Ctrl+Alt+N"</span>
+ai = <span class="c-s">"Ctrl+Alt+Space"</span>
+dictate = <span class="c-s">"Ctrl+Alt+D"</span></code></pre>
+          <p class="config-note">Changes apply as soon as you save the file.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================= faq -->
+    <section class="faq" id="faq">
+      <div class="wrap faq-grid">
+        <h2>Questions</h2>
+        <div class="faq-list">
+          <details>
+            <summary>Will it run on my PC?</summary>
+            <p>It needs Windows 10 version 1903 or later. Windows 11 is recommended for the frosted glass. x64 and ARM64 both work, and there is nothing else to install.</p>
+          </details>
+          <details>
+            <summary>Will it get in the way of games?</summary>
+            <p>No. The notch hides when a game, video or presentation goes fullscreen, and it doesn't draw anything while it's idle.</p>
+          </details>
+          <details>
+            <summary>Where are my API keys kept?</summary>
+            <p>Only in an environment variable or a <code>.env</code> file next to the exe or in <code>%APPDATA%\DynamicNotch</code>. They are never stored in the config. AI and dictation are optional; everything else works without a key.</p>
+          </details>
+          <details>
+            <summary>Does my clipboard history leave my computer?</summary>
+            <p>No. It's kept in memory only, cleared when you quit, and items that password managers mark as sensitive are skipped.</p>
+          </details>
+          <details>
+            <summary>Can I add my own module?</summary>
+            <p>Yes. Implement the <code>Module</code> trait in Rust and add it to <code>modules::all()</code>. A module can show a live activity, peeks, a home card and its own tab.</p>
+          </details>
+          <details>
+            <summary>What does it cost?</summary>
+            <p>Nothing. Dynamic Notch is open source under the MIT license.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================= closing -->
+    <section class="closing">
+      <div class="wrap">
+        <h2>Look up.</h2>
+        <p>Free, open source, and about a megabyte.</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="https://github.com/eigenes/DynamicNotch/releases/latest">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/></svg>
+            Download for Windows
+          </a>
+          <a class="btn btn-ghost" href="https://github.com/eigenes/DynamicNotch">View source</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap foot-inner">
+      <a class="brand" href="#top">
+        <svg class="brand-mark" viewBox="0 0 40 20" aria-hidden="true"><path d="M0 0a5 5 0 0 1 5 5v7a8 8 0 0 0 8 8h14a8 8 0 0 0 8-8V5a5 5 0 0 1 5-5z"/></svg>
+        <span>Dynamic Notch</span>
+      </a>
+      <p>MIT licensed. Built in Rust for Windows.</p>
+      <nav aria-label="Project links">
+        <a href="https://github.com/eigenes/DynamicNotch">Source</a>
+        <a href="https://github.com/eigenes/DynamicNotch/releases">Releases</a>
+        <a href="https://github.com/eigenes/DynamicNotch/issues">Report an issue</a>
+      </nav>
+    </div>
+  </footer>
+
+  <svg class="defs" width="0" height="0" aria-hidden="true" focusable="false"><defs id="isoDefs"></defs></svg>
+</body>
+</html>

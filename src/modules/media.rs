@@ -104,7 +104,7 @@ impl Media {
     }
 
     fn visible(&self) -> bool {
-        self.snap.active && (self.playing() || self.paused_at.map_or(false, |t| t.elapsed() < self.linger))
+        self.snap.active && (self.playing() || self.paused_at.is_some_and(|t| t.elapsed() < self.linger))
     }
 
     fn accent(&self) -> Color {

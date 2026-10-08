@@ -85,7 +85,7 @@ fn load_wait_clock() -> Option<WaitClockFn> {
     unsafe {
         let lib = LoadLibraryW(windows::core::w!("dcomp.dll")).ok()?;
         let f = GetProcAddress(lib, s!("DCompositionWaitForCompositorClock"))?;
-        Some(std::mem::transmute::<_, WaitClockFn>(f))
+        Some(std::mem::transmute::<unsafe extern "system" fn() -> isize, WaitClockFn>(f))
     }
 }
 

@@ -96,7 +96,7 @@ impl Module for Battery {
             );
         }
         let low = cx.cfg.battery.low_threshold;
-        if !new.plugged && new.percent <= low && (old.percent > low || !self.warned_low) && !self.warned_low {
+        if !new.plugged && new.percent <= low && !self.warned_low {
             self.warned_low = true;
             cx.fx.peek(
                 Peek::new(Icon::Bolt, palette::RED, "Low battery", format!("{pct} remaining"))

@@ -3,7 +3,7 @@
 //! draws a frame whenever something moves.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
@@ -38,16 +38,16 @@ use crate::modules::{
     self, Activity, CardSize, Cx, Effects, Indicator, Key, Module, ModuleId, Peek, Slot, SystemEvent, Trailing,
 };
 use crate::pacer::Pacer;
+use crate::sys::dragdrop::{self, DropEvent};
 use crate::tray::{self, MenuState, Tray};
 use crate::ui::{ButtonStyle, Input, Ui};
 use crate::util::{palette, Color, Rect, SendHwnd};
+use crate::window::{WM_APP_BUS, WM_APP_DRAG, WM_APP_FOREGROUND, WM_APP_FRAME, WM_APP_TRAY};
+use crate::{ipc, log, sys};
 use windows::Win32::UI::Input::{
     GetRawInputData, RegisterRawInputDevices, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER, RIDEV_INPUTSINK,
     RID_INPUT, RIM_TYPEKEYBOARD,
 };
-use crate::sys::dragdrop::{self, DropEvent};
-use crate::window::{WM_APP_BUS, WM_APP_DRAG, WM_APP_FOREGROUND, WM_APP_FRAME, WM_APP_TRAY};
-use crate::{ipc, log, sys};
 
 const HEADER_H: f32 = 42.0;
 const PAD: f32 = 20.0;
@@ -57,8 +57,21 @@ const WIN_H: f32 = 520.0;
 const HOME: ModuleId = "home";
 const TIMER_WAKE: usize = 1;
 const HOME_HEIGHT: f32 = 128.0;
+/// With four tiles in the right column the home page grows a little.
+const HOME_HEIGHT_TALL: f32 = 152.0;
+const HOME_TILES: usize = 4;
+/// Quiet time before GPU caches are released.
+const TRIM_DELAY: Duration = Duration::from_secs(3);
 
 static NOTCH_HWND: AtomicIsize = AtomicIsize::new(0);
+/// A peek would be visible right now (not hidden, not expanded).
+static PEEKS_SHOWN: AtomicBool = AtomicBool::new(false);
+
+/// Whether a peek pushed now would actually be seen. Changes are also
+/// broadcast as `SystemEvent::PeeksShown`.
+pub fn peeks_shown() -> bool {
+    PEEKS_SHOWN.load(Ordering::Relaxed)
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Mode {
@@ -178,6 +191,8 @@ pub struct App {
     anim: Anim,
     last_frame: Instant,
     dirty: bool,
+    /// When to release GPU caches (set when a frame burst ends).
+    trim_at: Option<Instant>,
     region: Option<(i32, i32, i32, i32)>,
     region_anim: Option<Rect>,
     fs_hidden: bool,
@@ -252,6 +267,7 @@ impl App {
             anim,
             last_frame: Instant::now(),
             dirty: true,
+            trim_at: None,
             region: None,
             region_anim: None,
             fs_hidden: false,
@@ -303,12 +319,8 @@ impl App {
             }
             // Keyboard raw input in the background: lock-key toggles and the
             // release of the dictation hotkey. Nothing is blocked or recorded.
-            let rid = RAWINPUTDEVICE {
-                usUsagePage: 0x01,
-                usUsage: 0x06,
-                dwFlags: RIDEV_INPUTSINK,
-                hwndTarget: self.hwnd,
-            };
+            let rid =
+                RAWINPUTDEVICE { usUsagePage: 0x01, usUsage: 0x06, dwFlags: RIDEV_INPUTSINK, hwndTarget: self.hwnd };
             if let Err(e) = RegisterRawInputDevices(&[rid], std::mem::size_of::<RAWINPUTDEVICE>() as u32) {
                 log!("raw input unavailable: {e}");
             }
@@ -408,6 +420,8 @@ impl App {
                 if let Some(h) = self.hotkeys.iter().find(|h| h.id == id) {
                     let a = h.action;
                     self.on_hotkey(a);
+                } else {
+                    self.broadcast(SystemEvent::Hotkey(id));
                 }
                 Some(LRESULT(0))
             }
@@ -547,7 +561,7 @@ impl App {
 
     /// OLE drop target callbacks (files dragged onto the notch).
     pub fn on_drop_event(&mut self, ev: DropEvent) -> bool {
-        if !self.module_index("shelf").map_or(false, |i| self.started[i]) {
+        if !self.module_index("shelf").is_some_and(|i| self.started[i]) {
             return false;
         }
         match ev {
@@ -731,7 +745,7 @@ impl App {
             m.indicators(&mut self.indicators);
         }
         // stable sort: equal priorities keep module order
-        acts.sort_by(|a, b| b.priority.cmp(&a.priority));
+        acts.sort_by_key(|a| std::cmp::Reverse(a.priority));
         let mut it = acts.into_iter();
         self.activity = it.next();
         self.secondary = it.next();
@@ -757,7 +771,7 @@ impl App {
         {
             let hwnd = SendHwnd::new(self.hwnd);
             for (i, m) in self.modules.iter_mut().enumerate() {
-                if self.started[i] && self.tick_at[i].map_or(false, |t| t <= now + Duration::from_millis(2)) {
+                if self.started[i] && self.tick_at[i].is_some_and(|t| t <= now + Duration::from_millis(2)) {
                     let mut cx = Cx { bus: &self.bus, cfg: &self.cfg, fx: &mut fx, hwnd, now };
                     m.on_tick(&mut cx);
                     fx.redraw = true;
@@ -766,6 +780,12 @@ impl App {
         }
         self.apply_effects(fx);
         self.process_timeouts(now);
+        if self.trim_at.is_some_and(|t| t <= now + Duration::from_millis(2)) {
+            self.trim_at = None;
+            self.res.trim_bitmaps();
+            self.host.reset_dc(&self.gfx);
+            self.gfx.trim();
+        }
         if self.mode == Mode::Expanded && self.page == HOME {
             let st = unsafe { GetLocalTime() };
             if st.wMinute != self.clock_min {
@@ -804,6 +824,9 @@ impl App {
         }
         if let Some(p) = &self.peek {
             consider(p.until);
+        }
+        if let Some(t) = self.trim_at {
+            consider(t);
         }
         if self.mode == Mode::Expanded && self.page == HOME {
             consider(now + Duration::from_secs(15));
@@ -917,6 +940,12 @@ impl App {
         }
         if let Some(k) = p.key {
             self.peek_queue.retain(|q| q.key != Some(k));
+        }
+        if p.instant {
+            if let Some(cur) = self.peek.take() {
+                self.peek_queue.push_front(cur.peek);
+                self.peek_queue.truncate(4);
+            }
         }
         if self.peek.is_some() {
             if self.peek_queue.len() >= 4 {
@@ -1422,7 +1451,14 @@ impl App {
             Mode::Expanded => {
                 let content_w = ap.expanded_width - 2.0 * PAD;
                 let content_h = if self.page == HOME {
-                    HOME_HEIGHT
+                    let tiles = (0..self.modules.len())
+                        .filter(|&i| self.started[i] && self.modules[i].card() == Some(CardSize::Small))
+                        .count();
+                    if tiles >= HOME_TILES {
+                        HOME_HEIGHT_TALL
+                    } else {
+                        HOME_HEIGHT
+                    }
                 } else {
                     self.module_index(self.page)
                         .map(|i| self.modules[i].page_height(content_w))
@@ -1510,6 +1546,11 @@ impl App {
         let dt = (now - self.last_frame).as_secs_f32().min(1.0 / 20.0);
         self.last_frame = now;
         self.dirty = false;
+        self.trim_at = None;
+        let shown = !(self.user_hidden || self.fs_hidden) && self.mode != Mode::Expanded;
+        if PEEKS_SHOWN.swap(shown, Ordering::Relaxed) != shown {
+            self.broadcast(SystemEvent::PeeksShown(shown));
+        }
         self.process_timeouts(now);
         self.refresh_activity();
         self.retarget();
@@ -1544,10 +1585,10 @@ impl App {
                 self.stats = (None, 0, 0, 0);
             }
             self.pacer.stop();
-            // idle from now on: release GPU scratch memory
-            self.res.trim_bitmaps();
-            self.host.reset_dc(&self.gfx);
-            self.gfx.trim();
+            // Release GPU scratch memory once nothing has been drawn for a
+            // while. Doing it after every burst would rebuild the glyph and
+            // image caches on each once-a-second update (stats, timer, media).
+            self.trim_at = Some(now + TRIM_DELAY);
         }
         if !self.shown_once {
             self.shown_once = true;
@@ -1719,7 +1760,6 @@ impl App {
                     ui.p.reset_local();
                 }
                 ui.p.alpha = 1.0;
-                drop(ui);
                 p.pop_clip();
             }
         }
@@ -1872,8 +1912,34 @@ fn draw_peek(ui: &mut Ui, body: Rect, pk: &Peek) {
             ui.p.icon(pk.icon, ir.inset(is * 0.24), pk.accent);
         }
     }
+    if ui.hovered(body) {
+        ui.hot = true;
+    }
+    if let Trailing::Level { frac, color, text } = &pk.trailing {
+        // title (+ dim subtitle) on top, a slider-like bar below, value on the right
+        let tx = ir.right() + 12.0;
+        let vs = TextStyle::new(15.0, palette::TEXT).semibold().display().right();
+        let value = text.clone().unwrap_or_else(|| format!("{:.0}", frac.clamp(0.0, 1.0) * 100.0));
+        let vw = ui.p.measure("100", &vs).0.max(ui.p.measure(&value, &vs).0) + 4.0;
+        let ts = TextStyle::new(13.0, palette::TEXT).semibold();
+        let (tw, _) = ui.p.measure(&pk.title, &ts);
+        let col_w = inner.right() - tx;
+        ui.p.text(&pk.title, Rect::new(tx, inner.cy() - 20.0, col_w, 18.0), &ts);
+        if !pk.subtitle.is_empty() && tw + 30.0 < col_w {
+            let sx = tx + tw + 8.0;
+            ui.p.text(
+                &pk.subtitle,
+                Rect::new(sx, inner.cy() - 20.0, inner.right() - sx, 18.0),
+                &TextStyle::new(12.5, palette::TEXT_DIM),
+            );
+        }
+        let bar = Rect::new(tx, inner.cy() + 6.0, col_w - vw - 10.0, 6.0);
+        ui.progress(bar, *frac, *color);
+        ui.p.text(&value, Rect::new(inner.right() - vw, bar.cy() - 11.0, vw, 22.0), &vs.color(*color));
+        return;
+    }
     let trailing_w = match &pk.trailing {
-        Trailing::None => 0.0,
+        Trailing::None | Trailing::Level { .. } => 0.0,
         Trailing::Text(s, _) => ui.p.measure(s, &TextStyle::new(15.0, palette::TEXT).semibold()).0 + 8.0,
         Trailing::Ring(..) => 34.0,
         Trailing::Battery { .. } => 40.0,
@@ -1889,7 +1955,7 @@ fn draw_peek(ui: &mut Ui, body: Rect, pk: &Peek) {
     }
     let tr = Rect::new(inner.right() - trailing_w, inner.y, trailing_w, inner.h);
     match &pk.trailing {
-        Trailing::None => {}
+        Trailing::None | Trailing::Level { .. } => {}
         Trailing::Text(s, c) => ui.p.text(s, tr, &TextStyle::new(15.0, *c).semibold().display().right()),
         Trailing::Ring(f, c) => {
             let (cx, cy) = (tr.right() - 14.0, tr.cy());
@@ -1900,9 +1966,6 @@ fn draw_peek(ui: &mut Ui, body: Rect, pk: &Peek) {
             let r = Rect::new(tr.right() - 36.0, tr.cy() - 8.0, 36.0, 16.0);
             icons::battery(ui.p, r, *level, *charging, battery_color(*level, *charging));
         }
-    }
-    if ui.hovered(body) {
-        ui.hot = true;
     }
 }
 
@@ -1964,8 +2027,10 @@ fn draw_expanded(
 
 fn draw_home(ui: &mut Ui, r: Rect, modules: &mut [Box<dyn Module>], started: &[bool]) {
     let large = (0..modules.len()).find(|&i| started[i] && modules[i].card() == Some(CardSize::Large));
-    let smalls: Vec<usize> =
-        (0..modules.len()).filter(|&i| started[i] && modules[i].card() == Some(CardSize::Small)).take(3).collect();
+    let smalls: Vec<usize> = (0..modules.len())
+        .filter(|&i| started[i] && modules[i].card() == Some(CardSize::Small))
+        .take(HOME_TILES)
+        .collect();
     let (left, right) = if smalls.is_empty() { (r, Rect::default()) } else { r.split_left((r.w * 0.58).round(), 12.0) };
     match large {
         Some(i) => modules[i].draw_card(ui, left),

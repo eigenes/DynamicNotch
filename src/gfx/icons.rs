@@ -42,6 +42,15 @@ pub enum Icon {
     Globe,
     Keyboard,
     Package,
+    Volume,
+    Mute,
+    Brightness,
+    Headphones,
+    Bluetooth,
+    Mouse,
+    Gamepad,
+    Phone,
+    Pulse,
 }
 
 impl Icon {
@@ -69,6 +78,15 @@ impl Icon {
             Icon::Globe => '\u{E774}',
             Icon::Keyboard => '\u{E765}',
             Icon::Package => '\u{E7B8}',
+            Icon::Volume => '\u{E767}',
+            Icon::Mute => '\u{E74F}',
+            Icon::Brightness => '\u{E706}',
+            Icon::Headphones => '\u{E7F6}',
+            Icon::Bluetooth => '\u{E702}',
+            Icon::Mouse => '\u{E962}',
+            Icon::Gamepad => '\u{E7FC}',
+            Icon::Phone => '\u{E8EA}',
+            Icon::Pulse => '\u{E9D9}',
             _ => return None,
         })
     }

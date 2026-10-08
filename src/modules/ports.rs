@@ -38,10 +38,41 @@ const SCAN_EVERY: Duration = Duration::from_secs(3);
 const RESTART_GRACE: Duration = Duration::from_secs(120);
 
 const DEV_PROCESSES: &[&str] = &[
-    "node", "bun", "deno", "python", "python3", "pythonw", "py", "uvicorn", "gunicorn", "hypercorn", "flask",
-    "streamlit", "jupyter", "jupyter-lab", "ruby", "puma", "rails", "php", "php-cgi", "java", "javaw", "dotnet",
-    "go", "air", "hugo", "caddy", "nginx", "httpd", "wrangler", "workerd", "esbuild", "http-server", "live-server",
-    "wslrelay", "com.docker.backend",
+    "node",
+    "bun",
+    "deno",
+    "python",
+    "python3",
+    "pythonw",
+    "py",
+    "uvicorn",
+    "gunicorn",
+    "hypercorn",
+    "flask",
+    "streamlit",
+    "jupyter",
+    "jupyter-lab",
+    "ruby",
+    "puma",
+    "rails",
+    "php",
+    "php-cgi",
+    "java",
+    "javaw",
+    "dotnet",
+    "go",
+    "air",
+    "hugo",
+    "caddy",
+    "nginx",
+    "httpd",
+    "wrangler",
+    "workerd",
+    "esbuild",
+    "http-server",
+    "live-server",
+    "wslrelay",
+    "com.docker.backend",
 ];
 
 #[derive(Clone, Debug, PartialEq)]
@@ -172,13 +203,18 @@ impl Module for Ports {
                 let now = cx.now;
                 for &i in &fresh {
                     let s = &self.servers[i];
-                    let restarted = self.seen.get(&s.l.port).map_or(false, |t| now - *t < RESTART_GRACE);
+                    let restarted = self.seen.get(&s.l.port).is_some_and(|t| now - *t < RESTART_GRACE);
                     if self.initialized && !restarted && cx.cfg.ports.peek_on_start {
                         cx.fx.peek(
-                            Peek::new(Icon::Globe, palette::TEAL, "Dev server started", format!("localhost:{} · {}", s.l.port, s.l.exe))
-                                .key("ports")
-                                .duration_ms(3500)
-                                .page(ID),
+                            Peek::new(
+                                Icon::Globe,
+                                palette::TEAL,
+                                "Dev server started",
+                                format!("localhost:{} · {}", s.l.port, s.l.exe),
+                            )
+                            .key("ports")
+                            .duration_ms(3500)
+                            .page(ID),
                         );
                     }
                     self.fetch_title(s);
@@ -220,7 +256,8 @@ impl Module for Ports {
         let open = Rect::new(inner.right() - 26.0, r.cy() - 13.0, 26.0, 26.0);
         let tx = inner.x + 28.0;
         let more = self.servers.len() - 1;
-        let label = if more > 0 { format!("localhost:{}  +{more}", s.l.port) } else { format!("localhost:{}", s.l.port) };
+        let label =
+            if more > 0 { format!("localhost:{}  +{more}", s.l.port) } else { format!("localhost:{}", s.l.port) };
         ui.p.text(&label, Rect::new(tx, r.y, open.x - tx - 6.0, r.h), &TextStyle::new(12.5, palette::TEXT));
         let url = s.url();
         if ui.icon_button(open, Icon::Link, ButtonStyle::default().scale(0.55).fg(palette::TEXT_DIM)) {

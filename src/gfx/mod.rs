@@ -307,7 +307,7 @@ impl Res {
     pub fn end_frame(&mut self) {
         self.frame += 1;
         let f = self.frame;
-        if f % 120 == 0 {
+        if f.is_multiple_of(120) {
             self.bitmaps.retain(|_, b| f - b.last_used < 600);
             self.realizations.borrow_mut().retain(|_, r| f - r.1 < 600);
         }
@@ -315,13 +315,13 @@ impl Res {
 
     fn format(&mut self, gfx: &Gfx, font: Font, size: f32, weight: u16) -> Option<&Fmt> {
         // degenerate sizes happen mid-animation; DirectWrite rejects them
-        if !(size >= 1.0 && size < 2000.0) {
+        if !(1.0..2000.0).contains(&size) {
             return None;
         }
         let key = FmtKey { font, size_x100: (size * 100.0) as u32, weight };
-        if !self.formats.contains_key(&key) {
+        if let std::collections::hash_map::Entry::Vacant(e) = self.formats.entry(key) {
             let fmt = unsafe { Self::create_format(gfx, font, size, weight) }?;
-            self.formats.insert(key, fmt);
+            e.insert(fmt);
         }
         self.formats.get(&key)
     }
@@ -494,11 +494,11 @@ impl<'a> Painter<'a> {
         };
         let frame = self.res.frame;
         let mut cache = self.res.realizations.borrow_mut();
-        if !cache.contains_key(&key) {
+        if let std::collections::hash_map::Entry::Vacant(e) = cache.entry(key) {
             let Some(g) = self.path(build) else { return };
             let tol = D2D1_DEFAULT_FLATTENING_TOLERANCE / self.scale.max(1.0);
             let Ok(real) = (unsafe { dc1.CreateFilledGeometryRealization(&g, tol) }) else { return };
-            cache.insert(key, (real, frame));
+            e.insert((real, frame));
         }
         let entry = cache.get_mut(&key).unwrap();
         entry.1 = frame;
@@ -586,6 +586,7 @@ impl<'a> Painter<'a> {
 
     /// Circular arc with round caps from `start` (radians, 0 = 12 o'clock,
     /// clockwise) spanning `sweep`.
+    #[allow(clippy::too_many_arguments)]
     pub fn arc(&self, cx: f32, cy: f32, radius: f32, start: f32, sweep: f32, width: f32, c: Color) {
         if sweep.abs() < 0.001 || c.a * self.alpha <= 0.001 {
             return;

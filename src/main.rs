@@ -37,7 +37,7 @@ fn main() {
     }
 
     // Hook mode: forward to a running notch, never start one.
-    if args.first().map_or(false, |a| a.eq_ignore_ascii_case("claude")) {
+    if args.first().is_some_and(|a| a.eq_ignore_ascii_case("claude")) {
         claude::run(&args[1..]);
         return;
     }

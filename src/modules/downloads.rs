@@ -165,7 +165,7 @@ impl Module for Downloads {
     }
 
     fn card(&self) -> Option<CardSize> {
-        let fresh = self.recent.first().map_or(false, |d| d.at.elapsed() < Duration::from_secs(15 * 60));
+        let fresh = self.recent.first().is_some_and(|d| d.at.elapsed() < Duration::from_secs(15 * 60));
         (!self.browser.is_empty() || !self.external.is_empty() || fresh).then_some(CardSize::Small)
     }
 
@@ -415,14 +415,12 @@ fn worker(folders: Vec<PathBuf>, bus: Bus) {
                     let path = w.dir.join(&name);
                     let is_temp = temp_stem(&name).is_some();
                     match FILE_ACTION(action) {
-                        FILE_ACTION_ADDED | FILE_ACTION_MODIFIED if is_temp => {
-                            if !tracks.contains_key(&path) {
-                                tracks.insert(
-                                    path.clone(),
-                                    Track { path, size: 0, last_size: 0, last_t: Instant::now(), speed: 0.0 },
-                                );
-                                changed = true;
-                            }
+                        FILE_ACTION_ADDED | FILE_ACTION_MODIFIED if is_temp && !tracks.contains_key(&path) => {
+                            tracks.insert(
+                                path.clone(),
+                                Track { path, size: 0, last_size: 0, last_t: Instant::now(), speed: 0.0 },
+                            );
+                            changed = true;
                         }
                         FILE_ACTION_RENAMED_OLD_NAME => pending_old = Some(path),
                         FILE_ACTION_RENAMED_NEW_NAME => {
@@ -444,19 +442,14 @@ fn worker(folders: Vec<PathBuf>, bus: Bus) {
                                 }
                             }
                         }
-                        FILE_ACTION_REMOVED if is_temp => {
-                            if tracks.remove(&path).is_some() {
-                                // Some browsers delete the temp file and write the final one.
-                                let stem = temp_stem(&name).unwrap_or(&name).to_string();
-                                let fin = w.dir.join(&stem);
-                                if fin.exists() && std::fs::metadata(&fin).map(|m| m.len() > 0).unwrap_or(false) {
-                                    bus.to_module(
-                                        ID,
-                                        DlMsg::Completed { name: stem, path: fin.to_string_lossy().into() },
-                                    );
-                                }
-                                changed = true;
+                        FILE_ACTION_REMOVED if is_temp && tracks.remove(&path).is_some() => {
+                            // Some browsers delete the temp file and write the final one.
+                            let stem = temp_stem(&name).unwrap_or(&name).to_string();
+                            let fin = w.dir.join(&stem);
+                            if fin.exists() && std::fs::metadata(&fin).map(|m| m.len() > 0).unwrap_or(false) {
+                                bus.to_module(ID, DlMsg::Completed { name: stem, path: fin.to_string_lossy().into() });
                             }
+                            changed = true;
                         }
                         _ => {}
                     }

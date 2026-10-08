@@ -144,7 +144,7 @@ pub fn request(
             WinHttpAddRequestHeaders(req.0, &hdr_w, WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE)
                 .map_err(|e| format!("headers: {e}"))?;
         }
-        let data = (!body.is_empty()).then(|| body.as_ptr() as *const _);
+        let data = (!body.is_empty()).then_some(body.as_ptr() as *const _);
         WinHttpSendRequest(req.0, None, data, body.len() as u32, body.len() as u32, 0)
             .map_err(|e| net_error("send", e))?;
         WinHttpReceiveResponse(req.0, std::ptr::null_mut()).map_err(|e| net_error("receive", e))?;

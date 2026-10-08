@@ -38,13 +38,14 @@ pub fn run(args: &[String]) {
     let payload = read_payload().unwrap_or(Value::Null);
     let field = |k: &str| payload.get(k).and_then(Value::as_str).map(str::to_string);
 
-    let event = pos.first().map(|s| s.to_string()).or_else(|| field("hook_event_name")).unwrap_or_else(|| "Stop".into());
+    let event =
+        pos.first().map(|s| s.to_string()).or_else(|| field("hook_event_name")).unwrap_or_else(|| "Stop".into());
     let message = pos.get(1).map(|s| s.to_string()).or_else(|| field("message")).unwrap_or_default();
     let cwd = field("cwd").or_else(|| std::env::current_dir().ok().map(|d| d.to_string_lossy().into_owned()));
     let project = cwd.as_deref().map(folder_name).unwrap_or_default();
 
     let target = unsafe { claude_window() };
-    if !always && target.map_or(false, |t| unsafe { is_foreground(t) }) {
+    if !always && target.is_some_and(|t| unsafe { is_foreground(t) }) {
         return; // the user is already looking at Claude
     }
     let hwnd = target.map_or(0, |h| h.0 as isize);

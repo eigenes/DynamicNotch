@@ -173,10 +173,8 @@ impl Module for Shelf {
                 self.add(files);
                 cx.fx.layout_changed = true;
             }
-            SystemEvent::DragOutDone | SystemEvent::Expanded(true) => {
-                if self.prune() {
-                    cx.fx.layout_changed = true;
-                }
+            SystemEvent::DragOutDone | SystemEvent::Expanded(true) if self.prune() => {
+                cx.fx.layout_changed = true;
             }
             SystemEvent::ConfigReloaded => {
                 self.remember = cx.cfg.shelf.remember;
@@ -247,7 +245,8 @@ impl Module for Shelf {
             ui.p.stroke_rounded(zone.inset(0.75), 14.0, 1.5, accent.with_a(0.7));
         }
         if self.items.is_empty() {
-            let msg = if self.drop_hover { "Drop to park files here" } else { "Drag files onto the notch to park them" };
+            let msg =
+                if self.drop_hover { "Drop to park files here" } else { "Drag files onto the notch to park them" };
             ui.empty_state(body, Icon::Package, msg);
             return;
         }
@@ -273,7 +272,8 @@ impl Module for Shelf {
         let mut remove = None;
         for (i, it) in self.items.iter().enumerate() {
             let (c, row) = (i % cols, i / cols);
-            let tile = Rect::new(body.x + c as f32 * (TILE_W + GAP), body.y + row as f32 * (TILE_H + GAP), TILE_W, TILE_H);
+            let tile =
+                Rect::new(body.x + c as f32 * (TILE_W + GAP), body.y + row as f32 * (TILE_H + GAP), TILE_W, TILE_H);
             let hover = ui.hovered(tile);
             if hover {
                 ui.hot = true;

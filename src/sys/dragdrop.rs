@@ -7,7 +7,7 @@ use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use windows::core::{implement, Ref, Result, PCWSTR};
-use windows::Win32::Foundation::{HWND, POINTL, S_OK, SIZE};
+use windows::Win32::Foundation::{HWND, POINTL, SIZE, S_OK};
 use windows::Win32::Graphics::Gdi::{
     DeleteObject, GetDC, GetDIBits, GetObjectW, ReleaseDC, BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
     DIB_RGB_COLORS, HGDIOBJ,
@@ -20,8 +20,8 @@ use windows::Win32::System::Ole::{
 use windows::Win32::System::SystemServices::MODIFIERKEYS_FLAGS;
 use windows::Win32::UI::Shell::Common::ITEMIDLIST;
 use windows::Win32::UI::Shell::{
-    DragQueryFileW, IShellItemArray, IShellItemImageFactory, ILFree, SHCreateItemFromParsingName,
-    SHCreateShellItemArrayFromIDLists, SHDoDragDrop, SHParseDisplayName, BHID_DataObject, HDROP, SIIGBF_RESIZETOFIT,
+    BHID_DataObject, DragQueryFileW, ILFree, IShellItemArray, IShellItemImageFactory, SHCreateItemFromParsingName,
+    SHCreateShellItemArrayFromIDLists, SHDoDragDrop, SHParseDisplayName, HDROP, SIIGBF_RESIZETOFIT,
 };
 
 use crate::gfx::ImageData;
@@ -73,7 +73,7 @@ impl IDropTarget_Impl for Target_Impl {
         _pt: &POINTL,
         effect: *mut DROPEFFECT,
     ) -> Result<()> {
-        let has_files = data.as_ref().map_or(false, |d| unsafe { d.QueryGetData(&file_format()) } == S_OK);
+        let has_files = data.as_ref().is_some_and(|d| unsafe { d.QueryGetData(&file_format()) } == S_OK);
         let ok = has_files && !DRAGGING_OUT.load(Ordering::Relaxed) && (self.handler)(DropEvent::Enter);
         self.accepting.set(ok);
         unsafe { *effect = if ok { pick(*effect) } else { DROPEFFECT_NONE } };
@@ -92,7 +92,13 @@ impl IDropTarget_Impl for Target_Impl {
         Ok(())
     }
 
-    fn Drop(&self, data: Ref<IDataObject>, _keys: MODIFIERKEYS_FLAGS, _pt: &POINTL, effect: *mut DROPEFFECT) -> Result<()> {
+    fn Drop(
+        &self,
+        data: Ref<IDataObject>,
+        _keys: MODIFIERKEYS_FLAGS,
+        _pt: &POINTL,
+        effect: *mut DROPEFFECT,
+    ) -> Result<()> {
         if !self.accepting.replace(false) {
             unsafe { *effect = DROPEFFECT_NONE };
             return Ok(());

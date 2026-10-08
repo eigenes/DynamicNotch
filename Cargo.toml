@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2021"
 description = "A MacBook-style dynamic notch / desktop island for Windows"
 license = "MIT"
+repository = "https://github.com/eigenes/DynamicNotch"
+homepage = "https://eigenes.github.io/DynamicNotch/"
+readme = "README.md"
+keywords = ["windows", "notch", "dynamic-island", "desktop", "widget"]
+categories = ["gui"]
+publish = false
 
 [[bin]]
 name = "dynamic-notch"
@@ -16,10 +22,14 @@ toml = "0.9"
 windows-numerics = "0.3"
 windows-future = "0.3"
 windows-core = "0.62"
+windows-collections = "0.3"
 
 [dependencies.windows]
 version = "0.62"
 features = [
+    "Devices_Bluetooth",
+    "Devices_Bluetooth_GenericAttributeProfile",
+    "Devices_Enumeration",
     "Foundation",
     "Foundation_Collections",
     "Foundation_Numerics",
@@ -61,6 +71,7 @@ features = [
     "Win32_System_IO",
     "Win32_System_LibraryLoader",
     "Win32_System_Memory",
+    "Win32_System_Performance",
     "Win32_System_Ole",
     "Win32_System_Power",
     "Win32_System_Registry",
@@ -70,12 +81,14 @@ features = [
     "Win32_System_Variant",
     "Win32_System_WinRT",
     "Win32_System_WinRT_Composition",
+    "Win32_System_Wmi",
     "Win32_UI_Accessibility",
     "Win32_UI_HiDpi",
     "Win32_UI_Input_Ime",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",
+    "Win32_UI_Shell_PropertiesSystem",
     "Win32_UI_WindowsAndMessaging",
 ]
 

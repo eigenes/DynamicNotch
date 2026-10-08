@@ -34,7 +34,7 @@ pub fn capture(stop: &AtomicBool, max_secs: u32, mut on_level: impl FnMut(f32)) 
             enumerator.GetDefaultAudioEndpoint(eCapture, eConsole).map_err(|_| "No microphone found".to_string())?;
         // a muted endpoint records pure silence; say so instead
         if let Ok(vol) = device.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None) {
-            if vol.GetMute().map_or(false, |m| m.as_bool()) {
+            if vol.GetMute().is_ok_and(|m| m.as_bool()) {
                 return Err(MUTED.to_string());
             }
         }
@@ -73,7 +73,7 @@ pub fn capture(stop: &AtomicBool, max_secs: u32, mut on_level: impl FnMut(f32)) 
                     let (mut frames, mut bflags) = (0u32, 0u32);
                     cap.GetBuffer(&mut data, &mut frames, &mut bflags, None, None).map_err(|e| e.to_string())?;
                     if bflags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 || data.is_null() {
-                        out.extend(std::iter::repeat(0).take(frames as usize));
+                        out.extend(std::iter::repeat_n(0, frames as usize));
                     } else {
                         out.extend_from_slice(std::slice::from_raw_parts(data as *const i16, frames as usize));
                     }

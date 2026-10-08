@@ -65,8 +65,7 @@ pub fn cleanup(cfg: &VoiceCfg, key: &str, raw: &str, language: &str, cancel: &At
         "max_tokens": (raw.len() / 2 + 256).min(8192),
         "messages": cleanup_messages(raw, language, mode == "medium", &cfg.vocabulary),
     });
-    let headers =
-        [("Authorization", format!("Bearer {key}")), ("Content-Type", "application/json".to_string())];
+    let headers = [("Authorization", format!("Bearer {key}")), ("Content-Type", "application/json".to_string())];
     let url = format!("{}/chat/completions", base(cfg));
     let res = http::fetch(
         "POST",
@@ -188,12 +187,19 @@ mod tests {
     #[test]
     fn sanitizing() {
         let raw = "um so this is uh a test of the dictation";
-        assert_eq!(sanitize(raw, "So this is a test of the dictation.").as_deref(), Some("So this is a test of the dictation."));
-        assert_eq!(sanitize(raw, "Here is the cleaned text:\nSo this is a test.").as_deref(), Some("So this is a test."));
+        assert_eq!(
+            sanitize(raw, "So this is a test of the dictation.").as_deref(),
+            Some("So this is a test of the dictation.")
+        );
+        assert_eq!(
+            sanitize(raw, "Here is the cleaned text:\nSo this is a test.").as_deref(),
+            Some("So this is a test.")
+        );
         assert_eq!(sanitize(raw, "```\nSo this is a test.\n```").as_deref(), Some("So this is a test."));
         assert_eq!(sanitize(raw, "\"So this is a test.\"").as_deref(), Some("So this is a test."));
         assert_eq!(sanitize(raw, "   "), None);
-        let answer = "Sure! Here is a long explanation of how dictation works, with many details that nobody asked for at all.";
+        let answer =
+            "Sure! Here is a long explanation of how dictation works, with many details that nobody asked for at all.";
         assert_eq!(sanitize(raw, answer), None);
     }
 
@@ -276,7 +282,10 @@ mod tests {
 
     #[test]
     fn errors() {
-        assert_eq!(api_error(401, br#"{"error":{"message":"Invalid API Key"}}"#), "Invalid API Key (check GROQ_API_KEY)");
+        assert_eq!(
+            api_error(401, br#"{"error":{"message":"Invalid API Key"}}"#),
+            "Invalid API Key (check GROQ_API_KEY)"
+        );
         assert_eq!(api_error(500, b"oops"), "HTTP 500");
     }
 }
