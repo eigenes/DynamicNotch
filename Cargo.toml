@@ -18,7 +18,7 @@ path = "src/main.rs"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "0.9"
+toml = "1.1"
 # These helper crates must be the exact versions `windows` (below) depends on:
 # its generated code links against them. Bump all five together, and check
 # `cargo tree -d` shows no second copy of windows-core.
