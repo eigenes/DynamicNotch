@@ -29,6 +29,14 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
+      - name: One windows-core version
+        shell: bash
+        # `cargo tree -i` refuses to run when two versions are in the graph
+        run: |
+          cargo tree --locked -i windows-core -e normal > /dev/null || {
+            echo "::error::Two windows-core versions in Cargo.lock. Bump the windows-* helper crates together with 'windows' (see Cargo.toml)."
+            exit 1
+          }
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
 

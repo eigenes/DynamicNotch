@@ -1,7 +1,7 @@
 name: Release
 
-# Push a tag like v0.2.0 to build x64 and ARM64 zips and publish a GitHub
-# release. The release notes are the matching section of CHANGELOG.md.
+# Push a tag like v0.2.0 to build x64 and ARM64 zips plus one installer for
+# both, and publish a GitHub release. The release notes are the matching section of CHANGELOG.md.
 on:
   push:
     tags: ["v*"]
@@ -47,11 +47,48 @@ jobs:
           Compress-Archive -Path $dir -DestinationPath "dist/$name.zip"
       - uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.arch }}
+          name: dist-${{ matrix.arch }}
           path: dist/*.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: exe-${{ matrix.arch }}
+          path: target/${{ matrix.target }}/release/dynamic-notch.exe
+
+  installer:
+    name: installer
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: exe-*
+          path: exe
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y }
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found after install" }
+          "ISCC=$iscc" >> $env:GITHUB_ENV
+      - name: Build setup.exe
+        shell: pwsh
+        run: |
+          & $env:ISCC /Qp "/DAppVersion=$($env:TAG.TrimStart('v'))" `
+            "/DX64Exe=$PWD\exe\exe-x64\dynamic-notch.exe" `
+            "/DArm64Exe=$PWD\exe\exe-arm64\dynamic-notch.exe" `
+            "/DOutputDir=$PWD\dist" installer\dynamic-notch.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Get-ChildItem dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-setup
+          path: dist/*.exe
 
   publish:
-    needs: build
+    needs: [build, installer]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -59,11 +96,12 @@ jobs:
           ref: ${{ env.TAG }}
       - uses: actions/download-artifact@v8
         with:
+          pattern: dist-*
           path: dist
           merge-multiple: true
       - name: Checksums
         working-directory: dist
-        run: sha256sum *.zip | tee SHA256SUMS.txt
+        run: sha256sum *.zip *.exe | tee SHA256SUMS.txt
       - name: Release notes
         run: |
           version="${TAG#v}"
@@ -77,14 +115,16 @@ jobs:
 
           ### Install
 
-          Download the zip for your PC, unzip it anywhere and run `dynamic-notch.exe`. Nothing else to install.
+          **Installer (recommended):** download `windows-setup.exe` and run it. It picks the right build for your PC (x64 or ARM64), needs no admin rights, adds a Start menu entry and an uninstaller, and updates an existing install in place.
+
+          **Portable:** download the zip for your PC, unzip it anywhere and run `dynamic-notch.exe`.
 
           | Zip | For |
           | --- | --- |
           | `windows-x64` | Most Intel and AMD PCs |
           | `windows-arm64` | Snapdragon and other Windows on ARM PCs |
 
-          The exe isn't code-signed yet, so SmartScreen may warn the first time: choose **More info → Run anyway**. SHA-256 checksums are in `SHA256SUMS.txt`.
+          The installer and exe aren't code-signed yet, so SmartScreen may warn the first time: choose **More info → Run anyway**. SHA-256 checksums are in `SHA256SUMS.txt`.
           EOF
           cat notes.md
       - name: Publish

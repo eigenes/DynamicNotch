@@ -1,7 +1,9 @@
-//! Quick AI prompt (Ctrl+Alt+Space by default) backed by OpenRouter.
+//! Quick AI prompt (Ctrl+Alt+Space by default) backed by the Gemini API
+//! (Google AI Studio) through its OpenAI-compatible endpoint.
 //!
-//! The API key is read from OPENROUTER_API_KEY (environment or a
-//! git-ignored `.env` file) — never from config.toml. Responses stream in
+//! The API key is read from GEMINI_API_KEY, or OPENROUTER_API_KEY when the
+//! endpoint is OpenRouter (environment or a git-ignored `.env` file) — never
+//! from config.toml. Responses stream in
 //! over SSE on a background thread.
 
 use std::any::Any;
@@ -24,7 +26,6 @@ const ID: ModuleId = "ai";
 const INPUT_H: f32 = 40.0;
 const FOOTER_H: f32 = 22.0;
 const MAX_RESPONSE_H: f32 = 250.0;
-const KEY_VAR: &str = "OPENROUTER_API_KEY";
 
 enum AiMsg {
     Delta(u64, String),
@@ -138,8 +139,9 @@ impl Ai {
         if prompt.is_empty() || self.streaming {
             return;
         }
-        let Some(key) = dotenv::get(KEY_VAR) else {
-            self.error = Some(format!("No API key — add {KEY_VAR}=… to a .env file (see .env.example)"));
+        let key_var = self.cfg.key_var();
+        let Some(key) = dotenv::get(key_var) else {
+            self.error = Some(format!("No API key — add {key_var}=… to a .env file (see .env.example)"));
             return;
         };
         let Some(bus) = self.bus.clone() else { return };
@@ -179,7 +181,7 @@ impl Ai {
         let endpoint = self.cfg.endpoint.clone();
         let _ = std::thread::Builder::new()
             .name("ai-request".into())
-            .spawn(move || request(endpoint, key, body, gen, cancel, bus));
+            .spawn(move || request(endpoint, key_var, key, body, gen, cancel, bus));
     }
 
     fn response_text(&self) -> Option<&Turn> {
@@ -187,13 +189,11 @@ impl Ai {
     }
 }
 
-fn request(endpoint: String, key: String, body: Value, gen: u64, cancel: Arc<AtomicBool>, bus: Bus) {
+fn request(endpoint: String, key_var: &str, key: String, body: Value, gen: u64, cancel: Arc<AtomicBool>, bus: Bus) {
     let headers = [
         ("Authorization", format!("Bearer {key}")),
         ("Content-Type", "application/json".to_string()),
         ("Accept", "text/event-stream".to_string()),
-        ("HTTP-Referer", "https://github.com/eigenes/DynamicNotch".to_string()),
-        ("X-Title", "Dynamic Notch".to_string()),
     ];
     let payload = body.to_string().into_bytes();
     let mut parser = http::SseParser::default();
@@ -210,8 +210,8 @@ fn request(endpoint: String, key: String, body: Value, gen: u64, cancel: Arc<Ato
                 return;
             }
             let Ok(v) = serde_json::from_str::<Value>(data) else { return };
-            if let Some(e) = v.get("error") {
-                stream_error = Some(e.get("message").and_then(Value::as_str).unwrap_or("stream error").to_string());
+            if let Some(e) = error_message(&v) {
+                stream_error = Some(e);
                 return;
             }
             if let Some(t) = v.pointer("/choices/0/delta/content").and_then(Value::as_str) {
@@ -234,19 +234,26 @@ fn request(endpoint: String, key: String, body: Value, gen: u64, cancel: Arc<Ato
             let msg = stream_error.unwrap_or_else(|| {
                 serde_json::from_slice::<Value>(&raw)
                     .ok()
-                    .and_then(|v| v.pointer("/error/message").and_then(Value::as_str).map(str::to_string))
+                    .and_then(|v| error_message(&v))
                     .unwrap_or_else(|| format!("HTTP {status}"))
             });
             let hint = match status {
-                401 => " (check OPENROUTER_API_KEY)",
-                402 => " (out of OpenRouter credits)",
-                429 => " (rate limited, try again shortly)",
-                _ => "",
+                401 | 403 => format!(" (check {key_var})"),
+                402 => " (out of OpenRouter credits)".into(),
+                429 => " (rate or free-tier limit reached, try again later)".into(),
+                _ => String::new(),
             };
             bus.to_module(ID, AiMsg::Error(gen, format!("{msg}{hint}")));
         }
         Err(e) => bus.to_module(ID, AiMsg::Error(gen, e)),
     }
+}
+
+/// `{"error": {"message": …}}`, or the same wrapped in an array, which is how
+/// Gemini's OpenAI-compatible endpoint reports errors.
+fn error_message(v: &Value) -> Option<String> {
+    let e = v.get("error").or_else(|| v.pointer("/0/error"))?;
+    Some(e.get("message").and_then(Value::as_str).unwrap_or("request failed").to_string())
 }
 
 impl Module for Ai {
@@ -544,12 +551,13 @@ impl Module for Ai {
             }
         } else {
             self.text_h = 0.0;
-            let hint = if dotenv::get(KEY_VAR).is_some() {
-                "Enter to send · Esc to close · Ctrl+V to paste"
+            let key_var = self.cfg.key_var();
+            let hint = if dotenv::get(key_var).is_some() {
+                "Enter to send · Esc to close · Ctrl+V to paste".to_string()
             } else {
-                "Add OPENROUTER_API_KEY to a .env file to enable AI"
+                format!("Add {key_var} to a .env file to enable AI")
             };
-            ui.p.text(hint, Rect::new(area.x + 4.0, area.y, area.w, 22.0), &TextStyle::new(12.0, palette::TEXT_FAINT));
+            ui.p.text(&hint, Rect::new(area.x + 4.0, area.y, area.w, 22.0), &TextStyle::new(12.0, palette::TEXT_FAINT));
         }
 
         // --- footer ----------------------------------------------------------
@@ -624,4 +632,19 @@ fn draw_loader(ui: &mut Ui, r: Rect, t: f32, color: Color) {
     );
     let elapsed = TextStyle::new(12.0, palette::TEXT_FAINT).mono();
     ui.p.text(&format!("{t:.1}s"), Rect::new(lx + lw + 10.0, r.y, 60.0, r.h), &elapsed);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_message_formats() {
+        let openai = json!({ "error": { "message": "bad model" } });
+        let gemini =
+            json!([{ "error": { "code": 400, "message": "API key not valid", "status": "INVALID_ARGUMENT" } }]);
+        assert_eq!(error_message(&openai).as_deref(), Some("bad model"));
+        assert_eq!(error_message(&gemini).as_deref(), Some("API key not valid"));
+        assert_eq!(error_message(&json!({ "choices": [] })), None);
+    }
 }

@@ -142,6 +142,11 @@ pub fn register_target(hwnd: HWND, handler: fn(DropEvent) -> bool) {
     }
 }
 
+/// A drag out of the notch is in progress (its modal loop is running).
+pub fn dragging_out() -> bool {
+    DRAGGING_OUT.load(Ordering::Relaxed)
+}
+
 pub fn revoke_target(hwnd: HWND) {
     unsafe {
         let _ = RevokeDragDrop(hwnd);

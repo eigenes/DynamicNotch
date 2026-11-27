@@ -10,6 +10,19 @@ updates:
       other:
         patterns: ["*"]
         exclude-patterns: ["windows*"]
+    # The windows-* helper crates must match the versions the `windows` crate
+    # itself is built against, or the build breaks (two windows-core copies).
+    # They can release ahead of `windows`, so only take their patch releases
+    # here and move them by hand together with a `windows` bump.
+    ignore:
+      - dependency-name: "windows-core"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "windows-numerics"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "windows-future"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "windows-collections"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   - package-ecosystem: github-actions
     directory: /

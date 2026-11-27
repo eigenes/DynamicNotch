@@ -261,20 +261,36 @@ impl Default for BatteryCfg {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AiCfg {
-    /// Any OpenRouter model id. The API key is never stored here: it is read
-    /// from OPENROUTER_API_KEY (environment or a git-ignored `.env` file).
+    /// Model id for the endpoint below. The API key is never stored here: it
+    /// is read from the environment or a git-ignored `.env` file, see
+    /// [`AiCfg::key_var`].
     pub model: String,
-    /// OpenAI-compatible chat completions endpoint.
+    /// OpenAI-compatible chat completions endpoint (Gemini API by default).
     pub endpoint: String,
     pub max_tokens: u32,
     pub system_prompt: String,
 }
 
+pub const GEMINI_KEY_VAR: &str = "GEMINI_API_KEY";
+pub const OPENROUTER_KEY_VAR: &str = "OPENROUTER_API_KEY";
+
+impl AiCfg {
+    /// The environment variable holding the key for this endpoint:
+    /// OPENROUTER_API_KEY for OpenRouter, GEMINI_API_KEY for everything else.
+    pub fn key_var(&self) -> &'static str {
+        if self.endpoint.contains("openrouter.ai") {
+            OPENROUTER_KEY_VAR
+        } else {
+            GEMINI_KEY_VAR
+        }
+    }
+}
+
 impl Default for AiCfg {
     fn default() -> Self {
         Self {
-            model: "google/gemini-3.1-flash-lite".into(),
-            endpoint: "https://openrouter.ai/api/v1/chat/completions".into(),
+            model: "gemini-3.5-flash-lite".into(),
+            endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions".into(),
             max_tokens: 4096,
             system_prompt: "You are a quick assistant living in a small desktop notch. \
                 Answer concisely: prefer a few short sentences or a compact list. Plain text, no markdown headings."
@@ -418,7 +434,10 @@ pub fn load() -> LoadResult {
     let path = config_path();
     match std::fs::read_to_string(&path) {
         Ok(text) => match toml::from_str::<Config>(&text) {
-            Ok(c) => LoadResult::Ok(c.sanitized()),
+            Ok(mut c) => {
+                migrate(&mut c);
+                LoadResult::Ok(c.sanitized())
+            }
             Err(e) => LoadResult::Invalid(e.message().to_string()),
         },
         Err(_) => {
@@ -426,6 +445,43 @@ pub fn load() -> LoadResult {
             LoadResult::Ok(Config::default())
         }
     }
+}
+
+/// Persist what [`migrate_ai`] changed in the user's file.
+fn migrate(c: &mut Config) {
+    let has_openrouter_key = crate::sys::dotenv::get(OPENROUTER_KEY_VAR).is_some();
+    let changed = migrate_ai(&mut c.ai, has_openrouter_key);
+    if changed.endpoint {
+        set_value("ai", "endpoint", &format!("\"{}\"", c.ai.endpoint));
+    }
+    if changed.model {
+        set_value("ai", "model", &format!("\"{}\"", c.ai.model));
+    }
+}
+
+#[derive(Debug, Default, PartialEq)]
+struct Migrated {
+    endpoint: bool,
+    model: bool,
+}
+
+/// 0.1.0 sent Ask AI through OpenRouter; the default is now the Gemini API.
+/// A setup that still works is left alone: an OpenRouter config is only moved
+/// to Gemini when there is no OPENROUTER_API_KEY to use it with. Then a
+/// `vendor/model` id (OpenRouter style) is reset to the Gemini default too.
+fn migrate_ai(ai: &mut AiCfg, has_openrouter_key: bool) -> Migrated {
+    let d = AiCfg::default();
+    let mut changed = Migrated::default();
+    if ai.endpoint.contains("openrouter.ai") && !has_openrouter_key {
+        ai.endpoint = d.endpoint.clone();
+        changed.endpoint = true;
+    }
+    // Gemini accepts "models/<id>", but never another vendor prefix
+    if ai.endpoint == d.endpoint && ai.model.contains('/') && !ai.model.starts_with("models/") {
+        ai.model = d.model;
+        changed.model = true;
+    }
+    changed
 }
 
 /// Persist a single `[section] key = value` change while keeping the user's
@@ -567,20 +623,23 @@ low_threshold = 20
 peek_on_plug = true
 
 [ai]
-# The OpenRouter API key is NOT stored here. Put it in a .env file:
-#   OPENROUTER_API_KEY=sk-or-...
+# Gemini API (Google AI Studio). The API key is NOT stored here. Put it in a .env file:
+#   GEMINI_API_KEY=AIza...
 # (searched next to the exe, in the project folder and in %APPDATA%\DynamicNotch)
-# Any OpenRouter model id. Cheap & fast default; alternatives:
-# "deepseek/deepseek-v4.1-flash" (cheapest), "anthropic/claude-haiku-4.5", "anthropic/claude-sonnet-5.5"
-model = "google/gemini-3.1-flash-lite"
-endpoint = "https://openrouter.ai/api/v1/chat/completions"
+# Get a free key at https://aistudio.google.com/apikey
+# Any Gemini model id. The default is fast and has the most generous free tier;
+# "gemini-3.8-flash" is smarter but slower, with far fewer free requests per day.
+# OpenRouter still works: set endpoint = "https://openrouter.ai/api/v1/chat/completions",
+# an OpenRouter model id, and OPENROUTER_API_KEY in your .env.
+model = "gemini-3.5-flash-lite"
+endpoint = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 max_tokens = 4096
 system_prompt = "You are a quick assistant living in a small desktop notch. Answer concisely: prefer a few short sentences or a compact list. Plain text, no markdown headings."
 
 [voice]
 # Speech to text with Groq. The API key is NOT stored here. Put it in a .env file:
 #   GROQ_API_KEY=gsk_...
-# (same places as OPENROUTER_API_KEY). Get one at https://console.groq.com/keys
+# (same places as GEMINI_API_KEY). Get one at https://console.groq.com/keys
 model = "whisper-large-v3-turbo"
 endpoint = "https://api.groq.com/openai/v1"
 # "" = detect the language automatically, or e.g. "en", "de"
@@ -654,6 +713,47 @@ mod tests {
         assert_eq!(c.osd.volume_step, d.osd.volume_step);
         assert_eq!(c.osd.replace_system_flyout, d.osd.replace_system_flyout);
         assert_eq!(c.bluetooth.low_battery, d.bluetooth.low_battery);
+    }
+
+    fn openrouter_cfg() -> AiCfg {
+        AiCfg {
+            model: "google/gemini-3.1-flash-lite".into(),
+            endpoint: "https://openrouter.ai/api/v1/chat/completions".into(),
+            ..AiCfg::default()
+        }
+    }
+
+    #[test]
+    fn openrouter_kept_while_its_key_exists() {
+        let mut ai = openrouter_cfg();
+        assert_eq!(migrate_ai(&mut ai, true), Migrated::default());
+        assert_eq!(ai.endpoint, openrouter_cfg().endpoint);
+        assert_eq!(ai.model, openrouter_cfg().model);
+        assert_eq!(ai.key_var(), OPENROUTER_KEY_VAR);
+    }
+
+    #[test]
+    fn openrouter_without_key_moves_to_gemini() {
+        let mut ai = openrouter_cfg();
+        assert_eq!(migrate_ai(&mut ai, false), Migrated { endpoint: true, model: true });
+        assert_eq!(ai.endpoint, AiCfg::default().endpoint);
+        assert_eq!(ai.model, AiCfg::default().model);
+        assert_eq!(ai.key_var(), GEMINI_KEY_VAR);
+    }
+
+    #[test]
+    fn gemini_and_custom_configs_untouched() {
+        let mut gemini = AiCfg { model: "models/gemini-3.8-flash".into(), ..AiCfg::default() };
+        assert_eq!(migrate_ai(&mut gemini, false), Migrated::default());
+        assert_eq!(gemini.model, "models/gemini-3.8-flash");
+
+        let mut local = AiCfg {
+            endpoint: "http://localhost:11434/v1/chat/completions".into(),
+            model: "library/llama".into(),
+            ..AiCfg::default()
+        };
+        assert_eq!(migrate_ai(&mut local, false), Migrated::default());
+        assert_eq!(local.model, "library/llama");
     }
 
     #[test]

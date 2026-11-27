@@ -62,6 +62,11 @@ const HOME_HEIGHT_TALL: f32 = 152.0;
 const HOME_TILES: usize = 4;
 /// Quiet time before GPU caches are released.
 const TRIM_DELAY: Duration = Duration::from_secs(3);
+/// How often hover/focus/drag state is re-checked against reality while any
+/// of them is holding the notch (see `verify_input_state`).
+const VERIFY_EVERY: Duration = Duration::from_millis(400);
+/// A keyboard grab may take a moment to become the foreground window.
+const FOCUS_GRACE: Duration = Duration::from_secs(1);
 
 static NOTCH_HWND: AtomicIsize = AtomicIsize::new(0);
 /// A peek would be visible right now (not hidden, not expanded).
@@ -186,6 +191,9 @@ pub struct App {
     tracking: bool,
     input: Input,
     keyboard: bool,
+    keyboard_since: Instant,
+    /// Next sanity check of hover/keyboard/drag state.
+    verify_at: Option<Instant>,
     high_surrogate: Option<u16>,
 
     anim: Anim,
@@ -263,6 +271,8 @@ impl App {
             tracking: false,
             input: Input::default(),
             keyboard: false,
+            keyboard_since: Instant::now(),
+            verify_at: None,
             high_surrogate: None,
             anim,
             last_frame: Instant::now(),
@@ -327,7 +337,9 @@ impl App {
         }
         dragdrop::register_target(self.hwnd, |ev| crate::window::with_app(|a| a.on_drop_event(ev)).unwrap_or(false));
         sys::watch_config(self.bus.clone());
-        if self.cfg.general.start_with_windows != sys::is_autostart() {
+        // Also rewrite an existing entry, so it follows the exe when it moves
+        // (say from an unzipped copy to the installed one).
+        if self.cfg.general.start_with_windows || sys::is_autostart() {
             sys::set_autostart(self.cfg.general.start_with_windows);
         }
         self.sync_modules();
@@ -608,8 +620,10 @@ impl App {
             let _ = windows::Win32::Graphics::Gdi::ScreenToClient(self.hwnd, &mut pt);
         }
         let (x, y) = (pt.x as f32 / self.scale, pt.y as f32 / self.scale);
+        // The capture also ended any TrackMouseEvent request: re-arm on the
+        // next move, or a later leave would never be reported.
+        self.tracking = false;
         if !self.hover_zone().contains(x, y) {
-            self.tracking = false;
             self.input.mouse = None;
             self.set_hover(false);
         }
@@ -779,6 +793,10 @@ impl App {
             }
         }
         self.apply_effects(fx);
+        if self.verify_at.is_some_and(|t| t <= now + Duration::from_millis(2)) {
+            self.verify_at = None;
+            self.verify_input_state();
+        }
         self.process_timeouts(now);
         if self.trim_at.is_some_and(|t| t <= now + Duration::from_millis(2)) {
             self.trim_at = None;
@@ -824,6 +842,11 @@ impl App {
         }
         if let Some(p) = &self.peek {
             consider(p.until);
+        }
+        if self.hovering || self.drag_hover || (self.keyboard && self.mode == Mode::Expanded) {
+            consider(*self.verify_at.get_or_insert(now + VERIFY_EVERY));
+        } else {
+            self.verify_at = None;
         }
         if let Some(t) = self.trim_at {
             consider(t);
@@ -1000,6 +1023,7 @@ impl App {
             return;
         }
         self.keyboard = on;
+        self.keyboard_since = Instant::now();
         unsafe {
             let ex = GetWindowLongPtrW(self.hwnd, GWL_EXSTYLE);
             if on {
@@ -1016,6 +1040,57 @@ impl App {
             }
         }
         self.request_frame();
+    }
+
+    /// Safety net for lost notifications. `hovering`, `keyboard` and
+    /// `drag_hover` each hold the panel open, and each is cleared by a single
+    /// message (WM_MOUSELEAVE, WM_ACTIVATE, OLE DragLeave). Any of those can
+    /// be missed: messages that arrive while the app is borrowed are dropped
+    /// (see `window::with_app`), SetForegroundWindow can be refused, and a
+    /// mouse capture silently ends leave tracking. Without this the panel
+    /// stays open until something else (switching tabs) resets the flag.
+    fn verify_input_state(&mut self) {
+        if dragdrop::dragging_out() {
+            // the drag loop owns the mouse; drag_finished resyncs afterwards
+            self.schedule_wake();
+            return;
+        }
+        let mut pt = POINT::default();
+        let over = unsafe {
+            GetCursorPos(&mut pt).is_ok()
+                && WindowFromPoint(pt) == self.hwnd
+                && windows::Win32::Graphics::Gdi::ScreenToClient(self.hwnd, &mut pt).as_bool()
+        };
+        let (x, y) = (pt.x as f32 / self.scale, pt.y as f32 / self.scale);
+        let now = Instant::now();
+        if self.hovering && (self.fs_hidden || !over || !self.hover_zone().contains(x, y)) {
+            log!("hover was stale; clearing");
+            self.tracking = false;
+            self.input.mouse = None;
+            self.input.down = None;
+            self.set_hover(false);
+        }
+        if self.keyboard
+            && now.duration_since(self.keyboard_since) > FOCUS_GRACE
+            && unsafe { GetForegroundWindow() } != self.hwnd
+        {
+            log!("keyboard focus was lost; releasing");
+            self.set_keyboard(false);
+            if !self.hovering {
+                self.leave_since.get_or_insert(now);
+            }
+        }
+        // An OLE drag always holds a mouse button down.
+        let held = |vk: VIRTUAL_KEY| unsafe { GetAsyncKeyState(vk.0 as i32) } as u16 & 0x8000 != 0;
+        if self.drag_hover && !held(VK_LBUTTON) && !held(VK_RBUTTON) {
+            log!("drag hover was stale; clearing");
+            self.drag_hover = false;
+            if !self.hovering {
+                self.leave_since.get_or_insert(now);
+            }
+            self.broadcast(SystemEvent::DragHover(false));
+        }
+        self.schedule_wake();
     }
 
     fn quit(&mut self) {

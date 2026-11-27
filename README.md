@@ -70,7 +70,7 @@ Each module is a single Rust file that sleeps until Windows tells it something c
 | **Clipboard** | Your recent copies: text, links, files and images. Click one to copy it again. | Memory only, skips password managers |
 | **Shelf** | Drop files on the notch to park them, then drag them out into any folder or app later. | OLE drag and drop |
 | **Dictation** | Hold <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>D</kbd> and speak. The text is typed into the app you were using. | WASAPI capture, Whisper on Groq |
-| **Ask AI** | A quick prompt with streamed answers and follow-ups. | OpenRouter, any model |
+| **Ask AI** | A quick prompt with streamed answers and follow-ups. | Gemini API, free tier |
 | **Mic & Camera** | A dot whenever an app uses your microphone or camera, and a peek naming it. | Capability consent store |
 | **Dev Servers** | Local dev servers on localhost as they start, each with an Open button. | TCP listener table |
 | **Lock Keys** | A short peek when Caps Lock, Num Lock or Scroll Lock changes. | Raw keyboard input |
@@ -82,17 +82,16 @@ Each module is a single Rust file that sleeps until Windows tells it something c
 
 ## Install
 
-1. Download the zip for your PC from the [latest release](https://github.com/eigenes/DynamicNotch/releases/latest):
-   - `windows-x64` for most Intel and AMD PCs
-   - `windows-arm64` for Snapdragon and other Windows on ARM PCs
-2. Unzip it anywhere and run `dynamic-notch.exe`. There is no installer and no runtime to install.
-3. Right-click the notch or the tray icon to pick modules and a monitor, and to turn on **Start with Windows**.
+1. Download `dynamic-notch-…-windows-setup.exe` from the [latest release](https://github.com/eigenes/DynamicNotch/releases/latest) and run it. It installs the right build for your PC (x64 or ARM64) into `%LOCALAPPDATA%\Programs\Dynamic Notch`, needs no admin rights, and adds a Start menu entry and an uninstaller.
+2. Right-click the notch or the tray icon to pick modules and a monitor, and to turn on **Start with Windows**.
 
-The exe isn't code-signed yet, so SmartScreen may warn the first time you run it. Choose **More info → Run anyway**.
+**Portable instead:** download the zip for your PC (`windows-x64` for most Intel and AMD PCs, `windows-arm64` for Snapdragon and other Windows on ARM PCs), unzip it anywhere and run `dynamic-notch.exe`. Nothing else to install.
+
+The installer and exe aren't code-signed yet, so SmartScreen may warn the first time you run them. Choose **More info → Run anyway**.
 
 **Requirements:** Windows 10 version 1903 or later. Windows 11 is recommended for the frosted glass.
 
-To update, quit the notch from the tray and replace the exe. Your settings live in `%APPDATA%\DynamicNotch` and are kept.
+To update, run the newer setup.exe: it closes the running notch, updates it in place and starts it again. With the zip, quit the notch from the tray and replace the exe. Either way your settings live in `%APPDATA%\DynamicNotch` and are kept, also when you uninstall.
 
 ## Hotkeys
 
@@ -133,7 +132,7 @@ dictate = "Ctrl+Alt+D"
 bluetooth = true           # every module can be switched off here
 
 [ai]
-model = "google/gemini-3.1-flash-lite"   # any OpenRouter model id
+model = "gemini-3.5-flash-lite"   # any Gemini model id
 ```
 
 Every key is optional. A missing or invalid value falls back to its default, and the [full default config](src/config.rs) documents each option.
@@ -143,13 +142,15 @@ Every key is optional. A missing or invalid value falls back to its default, and
 Ask AI and dictation are optional; everything else works without a key. They read their keys from the environment or from a `.env` file, never from `config.toml`:
 
 ```ini
-# Ask AI: https://openrouter.ai/keys
-OPENROUTER_API_KEY=sk-or-...
+# Ask AI: https://aistudio.google.com/apikey (the free tier is enough)
+GEMINI_API_KEY=AIza...
 # Dictation: https://console.groq.com/keys
 GROQ_API_KEY=gsk_...
 ```
 
-Copy `.env.example` from the zip to `.env` and fill in your keys. The notch looks for `.env` in this order:
+Ask AI can also go through OpenRouter, as it did in 0.1.0: set `endpoint = "https://openrouter.ai/api/v1/chat/completions"` and an OpenRouter `model` id in `[ai]`, and put `OPENROUTER_API_KEY` in `.env`. Any other OpenAI-compatible endpoint works too; it reads its key from `GEMINI_API_KEY`.
+
+Copy `.env.example` (in the zip, or in the install folder) to `.env` and fill in your keys. `%APPDATA%\DynamicNotch\.env` is the easiest place, since updates never touch it. The notch looks for `.env` in this order:
 
 1. the process environment
 2. next to `dynamic-notch.exe`, then up to three parent folders
@@ -203,7 +204,7 @@ Dynamic Notch is written in Rust directly on the Windows compositor. Nothing is 
 
 - No telemetry, no accounts, no update checks.
 - Clipboard history is kept in memory only and cleared when you quit. Content that password managers mark as sensitive is never read.
-- Data leaves your PC only when you use AI or dictation: your prompt goes to OpenRouter, and your recording (plus the optional clean-up pass) goes to Groq.
+- Data leaves your PC only when you use AI or dictation: your prompt goes to Google's Gemini API (on the free tier, Google may use prompts to improve its products), and your recording (plus the optional clean-up pass) goes to Groq.
 - API keys are never written to the config or the log.
 
 ## Building from source
@@ -248,6 +249,7 @@ src/
   config.rs      config.toml, defaults and hot reload
   claude.rs      Claude Code hook bridge
 site/            the website, deployed to GitHub Pages
+installer/       Inno Setup script for the release setup.exe
 ```
 
 ### Writing a module
@@ -271,7 +273,9 @@ git tag v0.2.0
 git push origin v0.2.0
 ```
 
-The [release workflow](.github/workflows/release.yml) builds x64 and ARM64 zips, writes checksums and publishes the release with the changelog section as notes.
+The [release workflow](.github/workflows/release.yml) builds x64 and ARM64 zips plus one installer for both, writes checksums and publishes the release with the changelog section as notes.
+
+The installer is an [Inno Setup](https://jrsoftware.org/isinfo.php) script, [`installer/dynamic-notch.iss`](installer/dynamic-notch.iss). To build it locally, build both targets, then run `iscc installer\dynamic-notch.iss`; the setup.exe lands in `dist\`.
 
 ## Troubleshooting
 
